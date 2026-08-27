@@ -1,0 +1,52 @@
+
+<title></title>
+<meta http-equiv="Content-Type" content="text/html; charset='UTF-8">
+<table border="1">
+	<thead>
+	<tr>
+					<th>Employees and departments</th>
+					<th>Sun, Feb 01</th>
+					<th>Mon, Feb 02</th>
+					<th>Sat, Feb 07</th>
+					<th>Fri, May 01</th>
+					<th>Sun, Jul 12</th>
+	</tr>
+	</thead>
+	<tbody>
+			<tr>
+							<td>
+					<b>						HQ collection						</b>				</td>
+					</tr>
+			<tr>
+							<td>
+			Mikhailo Fesenko
+										</td>
+							<td>
+																					</td>
+							<td>
+								8h 6m
+							07:54
+							-
+							16:00
+											</td>
+							<td>
+								4h 0m
+							08:00
+							-
+							12:00
+											</td>
+							<td>
+								8h 0m
+							08:00
+							-
+							16:00
+											</td>
+							<td>
+								2h 8m
+							23:12
+							-
+							01:20
+											</td>
+			</tr>
+	</tbody>
+</table>
