@@ -8,10 +8,12 @@ from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
+from holidays import holidays_in_month
 from parser import parse_export
-from payroll import compute_shift, month_payroll
+from payroll import compute_shift, month_payroll, needed_hours_for_month
 from storage import load_state, save_state
 
 app = FastAPI(title="MCGA Salary Calculator", version="1.0.0")
@@ -33,6 +35,12 @@ class ReceivedUpdate(BaseModel):
     received: float | None = None
     note: str = ""
     osobne: float | None = None
+
+
+class VacationUpdate(BaseModel):
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    dates: list[str] = Field(default_factory=list)
+    notes: dict[str, str] = Field(default_factory=dict)
 
 
 def _parse_time(hhmm: str):
@@ -60,6 +68,15 @@ def _month_key(iso_date: str) -> str:
     return iso_date[:7]
 
 
+def _vacation_for_month(state: dict[str, Any], key: str) -> dict[str, Any]:
+    raw = (state.get("vacation") or {}).get(key) or {}
+    if isinstance(raw, list):
+        return {"dates": [d for d in raw if isinstance(d, str)], "notes": {}}
+    dates = [d for d in (raw.get("dates") or []) if isinstance(d, str)]
+    notes = {k: str(v) for k, v in (raw.get("notes") or {}).items() if str(v).strip()}
+    return {"dates": dates, "notes": notes}
+
+
 def build_report(state: dict[str, Any]) -> dict[str, Any]:
     paid = _paid_shifts(state)
     by_month: dict[str, list] = defaultdict(list)
@@ -69,26 +86,45 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
     months = []
     for key in sorted(by_month):
         year_s, month_s = key.split("-")
+        year_i, month_i = int(year_s), int(month_s)
         payroll = month_payroll(
             by_month[key],
             state["settings"],
             float(state.get("osobne", {}).get(key, 0) or 0),
+            year=year_i,
+            month=month_i,
         )
         recv = state.get("received", {}).get(key, {})
         received = recv.get("amount") if isinstance(recv, dict) else recv
         note = recv.get("note", "") if isinstance(recv, dict) else ""
         received_f = None if received in (None, "") else float(received)
+        if received_f == 0:
+            received_f = None
         cista = payroll["cista"]
         diff = None if received_f is None else round(received_f - cista, 2)
+        vac = _vacation_for_month(state, key)
+        skip = set()
+        for iso in vac.get("dates") or []:
+            try:
+                skip.add(date.fromisoformat(iso))
+            except ValueError:
+                continue
+        working_days, needed_hours = needed_hours_for_month(
+            year_i, month_i, state["settings"], skip
+        )
         months.append(
             {
                 "month": key,
-                "label": datetime(int(year_s), int(month_s), 1).strftime("%B %Y"),
+                "label": datetime(year_i, month_i, 1).strftime("%B %Y"),
                 **payroll,
                 "received": received_f,
                 "note": note,
                 "difference": diff,
+                "working_days": working_days,
+                "needed_hours": needed_hours,
                 "shifts": [s.to_dict() for s in by_month[key]],
+                "vacation": vac,
+                "holidays": holidays_in_month(year_i, month_i),
             }
         )
 
@@ -102,6 +138,11 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
         "months": months,
         "shift_count": len(paid),
     }
+
+
+@app.get("/")
+def root():
+    return RedirectResponse("http://127.0.0.1:5173/")
 
 
 @app.get("/api/health")
@@ -175,13 +216,30 @@ async def import_file(file: UploadFile = File(...)):
     return report
 
 
+@app.put("/api/vacation")
+def save_vacation(body: VacationUpdate):
+    state = load_state()
+    prefix = f"{body.month}-"
+    dates = sorted({d for d in body.dates if isinstance(d, str) and d.startswith(prefix)})
+    notes = {
+        iso: text.strip()
+        for iso, text in (body.notes or {}).items()
+        if isinstance(iso, str) and iso.startswith(prefix) and str(text).strip()
+    }
+    state.setdefault("vacation", {})[body.month] = {"dates": dates, "notes": notes}
+    save_state(state)
+    return build_report(state)
+
+
 @app.post("/api/received")
 def save_received(body: ReceivedUpdate):
     state = load_state()
     entry = state["received"].get(body.month, {})
     if not isinstance(entry, dict):
         entry = {"amount": entry, "note": ""}
-    if body.received is not None:
+    if body.received is None:
+        entry.pop("amount", None)
+    else:
         entry["amount"] = body.received
     if body.note is not None:
         entry["note"] = body.note

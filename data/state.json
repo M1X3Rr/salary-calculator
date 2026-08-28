@@ -1,20 +1,23 @@
 {
   "settings": {
-    "name": "Mikhailo Fesenko",
-    "personal_no": "Z0291",
-    "employer": "",
-    "health_insurer": "Union",
+    "name": "Name Surname",
+    "department": "Department",
+    "personal_no": "NO9999",
+    "employer": "employer",
+    "health_insurer": "Insurer",
     "hourly_rate": 8,
+    "avg_earnings": 0,
     "employment_type": "part_time",
     "dohoda_type": "student",
     "apply_nczd": true,
     "apply_oop": true,
     "oop": 200,
-    "min_wage_month": 915,
-    "min_wage_hour": 5.259,
-    "unpaid_break_after": 6,
-    "unpaid_break_hours": 0.5,
-    "full_time_shift_hours": 8,
+    "contract_h_week": 20,
+    "rate_np": 0.014,
+    "rate_sp": 0.04,
+    "rate_ip": 0.03,
+    "rate_pvn": 0.01,
+    "rate_zp": 0.05,
     "nczd": 497.23,
     "tax19": 0.19,
     "tax25": 0.25,
@@ -23,18 +26,16 @@
     "bracket19": 3665.28,
     "bracket25": 5029.1,
     "bracket30": 6250.86,
-    "rate_np": 0.014,
-    "rate_sp": 0.04,
-    "rate_ip": 0.03,
-    "rate_pvn": 0.01,
-    "rate_zp": 0.05,
     "prem_sat": 2.6295,
     "prem_sun": 5.259,
     "prem_night": 2.1036,
     "prem_hol_pct": 1,
     "prem_ot_pct": 0.25,
-    "ot_enabled": false,
-    "contract_hours_week": 20,
+    "unpaid_break_after": 6,
+    "unpaid_break_hours": 0.5,
+    "min_wage_month": 915,
+    "min_wage_hour": 5.259,
+    "full_time_shift_hours": 8,
     "er_np": 0.014,
     "er_sp": 0.14,
     "er_ip": 0.03,
@@ -43,7 +44,9 @@
     "er_up": 0.008,
     "er_gp": 0.0025,
     "er_prfs": 0.0475,
-    "er_zp": 0.11
+    "er_zp": 0.11,
+    "ot_enabled": false,
+    "contract_hours_week": 20
   },
   "shifts": [
     {
@@ -1635,12 +1638,24 @@
       "start": "07:56",
       "end": "16:30",
       "reported_hours": 8.5667
+    },
+    {
+      "date": "2026-08-27",
+      "start": "08:12",
+      "end": "14:49",
+      "reported_hours": 6.6
+    },
+    {
+      "date": "2026-08-28",
+      "start": "07:30",
+      "end": "18:45",
+      "reported_hours": 11.25
     }
   ],
   "received": {
     "2026-07": {
       "amount": 908.83,
-      "note": "dummy stub"
+      "note": ""
     },
     "2026-02": {
       "amount": 1732.86,
@@ -1663,7 +1678,34 @@
       "note": ""
     },
     "2026-08": {
-      "amount": null,
+      "note": ""
+    },
+    "2025-08": {
+      "amount": 831.64,
+      "note": ""
+    },
+    "2025-09": {
+      "note": "",
+      "amount": 1162.0
+    },
+    "2025-10": {
+      "amount": 1172.13,
+      "note": ""
+    },
+    "2025-11": {
+      "amount": 1111.86,
+      "note": ""
+    },
+    "2025-07": {
+      "amount": 751.07,
+      "note": ""
+    },
+    "2025-12": {
+      "amount": 971.88,
+      "note": ""
+    },
+    "2026-01": {
+      "amount": 1055.72,
       "note": ""
     }
   },
@@ -1674,7 +1716,14 @@
     "2026-04": 637.6,
     "2026-05": 580.24,
     "2026-06": 621.0,
-    "2026-08": 0.0
+    "2026-08": 0.0,
+    "2025-08": 0.0,
+    "2025-09": 0.0,
+    "2025-10": 0.0,
+    "2025-11": 0.0,
+    "2025-07": 0.0,
+    "2025-12": 0.0,
+    "2026-01": 0.0
   },
   "vacation": {
     "2026-04": {
@@ -1726,20 +1775,42 @@
       "notes": {}
     },
     "2026-08": {
-      "dates": [
-        "2026-08-23",
-        "2026-08-28"
-      ],
-      "notes": {
-        "2026-08-23": "Refining AI Agent to fit the deadline"
-      }
+      "dates": [],
+      "notes": {}
     }
   },
+  "imports": [
+    {
+      "filename": "20260826_95e348da_6a8eceede70b3.xls",
+      "employee": "Name Surname",
+      "department": "Department name",
+      "imported_at": "2026-08-27T11:14:44",
+      "shift_count": 146,
+      "replaced_dates": 146
+    },
+    {
+      "filename": "20260827_e2e4784c_6a900012798c3.xls",
+      "employee": "Name Surname",
+      "department": "Department name",
+      "imported_at": "2026-08-27T11:15:17",
+      "shift_count": 265,
+      "replaced_dates": 265
+    },
+    {
+      "filename": "20260828_725b65dd_6a91d012012fa.xls",
+      "employee": "Name Surname",
+      "department": "Department name",
+      "imported_at": "2026-08-28T20:25:19",
+      "shift_count": 21,
+      "replaced_dates": 21
+    }
+  ],
+  "updated_at": "2026-08-28T20:48:50",
   "last_import": {
     "filename": "20260827_e2e4784c_6a8fd57a6803a.xls",
     "at": "2026-08-27T08:22:43",
-    "employee": "Mikhailo Fesenko",
-    "department": "HQ collection",
+    "employee": "Name Surname",
+    "department": "Department name",
     "imported_shifts": 265,
     "total_shifts": 265
   }

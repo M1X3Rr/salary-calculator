@@ -27,7 +27,8 @@ WEEKDAYS = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6
 HEADER_RE = re.compile(
     r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})$"
 )
-DURATION_RE = re.compile(r"(\d+)\s*h\s+(\d+)\s*m", re.I)
+HEADER_SHORT_RE = re.compile(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})$")
+DURATION_RE = re.compile(r"(\d+)\s*h(?:\s+(\d+)\s*m)?", re.I)
 TIME_RANGE_RE = re.compile(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})")
 FILENAME_DATE_RE = re.compile(r"(20\d{2})(\d{2})(\d{2})")
 
@@ -40,25 +41,43 @@ def infer_export_year(filename: str | None, fallback: int | None = None) -> int:
     return fallback or date.today().year
 
 
-def resolve_header_date(label: str, export_year: int) -> date | None:
-    m = HEADER_RE.match(label.strip())
+def infer_export_month(filename: str | None) -> int | None:
+    if not filename:
+        return None
+    m = FILENAME_DATE_RE.search(Path(filename).name)
     if not m:
         return None
-    wd_name, mon_name, day_s = m.groups()
-    month = MONTHS[mon_name]
-    day = int(day_s)
-    want = WEEKDAYS[wd_name]
-    for year in (export_year, export_year - 1, export_year + 1):
+    month = int(m.group(2))
+    if 1 <= month <= 12:
+        return month
+    return None
+
+
+def _date_for_weekday(year: int, month: int, day: int, want: int) -> date | None:
+    for y in (year, year - 1, year + 1):
         try:
-            d = date(year, month, day)
+            d = date(y, month, day)
         except ValueError:
             continue
         if d.weekday() == want:
             return d
     try:
-        return date(export_year, month, day)
+        return date(year, month, day)
     except ValueError:
         return None
+
+
+def resolve_header_date(label: str, export_year: int, export_month: int | None = None) -> date | None:
+    text = label.strip()
+    m = HEADER_RE.match(text)
+    if m:
+        wd_name, mon_name, day_s = m.groups()
+        return _date_for_weekday(export_year, MONTHS[mon_name], int(day_s), WEEKDAYS[wd_name])
+    short = HEADER_SHORT_RE.match(text)
+    if short and export_month:
+        wd_name, day_s = short.groups()
+        return _date_for_weekday(export_year, export_month, int(day_s), WEEKDAYS[wd_name])
+    return None
 
 
 def parse_time(value: str) -> time:
@@ -77,7 +96,7 @@ def parse_cell(text: str) -> dict | None:
     dur_m = DURATION_RE.search(raw)
     reported = None
     if dur_m:
-        reported = int(dur_m.group(1)) + int(dur_m.group(2)) / 60.0
+        reported = int(dur_m.group(1)) + int(dur_m.group(2) or 0) / 60.0
     return {"start": start, "end": end, "reported_hours": reported, "raw": raw}
 
 
@@ -96,9 +115,10 @@ def parse_export(content: bytes | str, filename: str | None = None) -> dict:
         raise ValueError("Export table has no header row.")
     headers = [th.get_text(" ", strip=True) for th in header_row.find_all(["th", "td"])]
     export_year = infer_export_year(filename)
+    export_month = infer_export_month(filename)
     dates: list[date | None] = [None]
     for label in headers[1:]:
-        dates.append(resolve_header_date(label, export_year))
+        dates.append(resolve_header_date(label, export_year, export_month))
 
     employee = None
     department = None

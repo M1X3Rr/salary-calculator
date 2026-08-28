@@ -14,12 +14,17 @@ STATE_PATH = DATA_DIR / "state.json"
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "name": "Michal Fesenko",
+    "department": "",
     "personal_no": "Z0291",
     "employer": "MCGA legal",
     "health_insurer": "Union",
     "hourly_rate": 8.0,
     "avg_earnings": 0.0,
+    "employment_type": "part_time",
+    "dohoda_type": "student",
     "apply_nczd": True,
+    "apply_oop": True,
+    "oop": 200.0,
     "contract_h_week": 20,
     "rate_np": 0.014,
     "rate_sp": 0.04,
@@ -29,12 +34,21 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "nczd": 497.23,
     "tax19": 0.19,
     "tax25": 0.25,
+    "tax30": 0.30,
+    "tax35": 0.35,
     "bracket19": 3665.28,
+    "bracket25": 5029.10,
+    "bracket30": 6250.86,
     "prem_sat": 2.6295,
     "prem_sun": 5.259,
     "prem_night": 2.1036,
     "prem_hol_pct": 1.0,
     "prem_ot_pct": 0.25,
+    "unpaid_break_after": 6.0,
+    "unpaid_break_hours": 0.5,
+    "min_wage_month": 915.0,
+    "min_wage_hour": 5.259,
+    "full_time_shift_hours": 8.0,
     "er_np": 0.014,
     "er_sp": 0.14,
     "er_ip": 0.03,
@@ -53,6 +67,7 @@ def default_state() -> dict[str, Any]:
         "shifts": [],
         "received": {},
         "osobne": {},
+        "vacation": {},
         "imports": [],
         "updated_at": None,
     }
@@ -72,6 +87,7 @@ def load_state() -> dict[str, Any]:
     merged.setdefault("shifts", [])
     merged.setdefault("received", {})
     merged.setdefault("osobne", {})
+    merged.setdefault("vacation", {})
     merged.setdefault("imports", [])
     return merged
 

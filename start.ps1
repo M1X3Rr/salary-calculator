@@ -3,9 +3,7 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
 python -m pip install -r "$root\backend\requirements.txt" -q
-if (-not (Test-Path "$root\frontend\node_modules")) {
-  npm --prefix "$root\frontend" install
-}
+npm --prefix "$root\frontend" install
 
 Start-Process powershell -ArgumentList @(
   "-NoExit",

@@ -47,3 +47,11 @@ def slovak_holidays(year: int) -> dict[date, str]:
 
 def holiday_name(day: date) -> str | None:
     return slovak_holidays(day.year).get(day)
+
+
+def holidays_in_month(year: int, month: int) -> list[dict[str, str]]:
+    return [
+        {"date": d.isoformat(), "name": name}
+        for d, name in slovak_holidays(year).items()
+        if d.month == month
+    ]

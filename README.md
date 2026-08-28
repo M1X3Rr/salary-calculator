@@ -1,6 +1,6 @@
-# MCGA Salary Calculator
+# Salary Calculator
 
-Local dashboard for Slovak 2026 payroll. Import an MCGA hours export (HTML saved as `.xls`), see brutto/netto by month, and save the amount you actually received.
+Local dashboard for Slovak 2026 payroll. Import an hours export (HTML saved as `.xls`), see brutto/netto by month, and save the amount you actually received.
 
 Nothing leaves this machine. The API binds to `127.0.0.1`.
 
@@ -31,6 +31,8 @@ Or from the project root:
 ```powershell
 .\start.ps1
 ```
+
+
 
 ## Import
 
