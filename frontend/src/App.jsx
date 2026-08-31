@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { api, calendarCells, hours, isOvernight, modeSubtitle, SETTING_HINTS, settingsEntries } from "./api.js";
+import { downloadMonthReport, downloadYearReport, payslipLines } from "./report.js";
 
 const eur = (n) =>
   n == null || Number.isNaN(Number(n))
@@ -316,6 +317,33 @@ export default function App() {
                 </select>
               </label>
               <ModeSwitch mode={mode} onChange={saveMode} />
+              <button
+                type="button"
+                className="ghost"
+                disabled={months.length === 0}
+                onClick={() => {
+                  const reportMonths = months.map((m) => {
+                    const d = drafts[m.month] || {};
+                    return {
+                      ...m,
+                      received: parseReceived("received" in d ? d.received : m.received),
+                    };
+                  });
+                  downloadYearReport({
+                    year,
+                    profile,
+                    mode,
+                    months: reportMonths,
+                    totals,
+                    hoursLabel: partTime
+                      ? `${totals.workingDays} weekdays × ${partDailyLabel} h (${weekHours} h/week; vacation does not reduce target)`
+                      : `${totals.workingDays} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
+                  });
+                  setStatus(`Downloaded overview report for ${year}.`);
+                }}
+              >
+                Download year report
+              </button>
             </div>
             <div className="cards">
               <Kpi label="Hours" value={hours(totals.hours)} />
@@ -460,6 +488,26 @@ export default function App() {
                 <button className="primary" onClick={() => saveMonth(month)}>
                   Save received
                 </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    downloadMonthReport({
+                      month,
+                      profile,
+                      mode,
+                      partTime,
+                      received: monthReceived,
+                      difference: monthDiff,
+                      hoursLabel: partTime
+                        ? `${month.working_days ?? 0} weekdays × ${partDailyLabel} h (${weekHours} h/week; vacation does not reduce target)`
+                        : `${month.working_days ?? 0} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
+                    });
+                    setStatus(`Downloaded payslip for ${month.label}.`);
+                  }}
+                >
+                  Download payslip
+                </button>
               </div>
               <div className="month-hop" role="group" aria-label="Previous or next month">
                 <button
@@ -507,30 +555,7 @@ export default function App() {
                 <h3>Payslip</h3>
                 <table>
                   <tbody>
-                    {[
-                      ["Základná mzda", month.basic],
-                      ["Príplatok sobota", month.sat_prem],
-                      ["Príplatok nedeľa", month.sun_prem],
-                      ["Práca v noci", month.night_prem],
-                      ["Príplatok sviatok", month.holiday_prem],
-                      ...(month.ot_prem || partTime
-                        ? [["Príplatok nadčas (OT above 20 h/week)", month.ot_prem]]
-                        : []),
-                      ["Osobné ohodnotenie", month.osobne],
-                      ["Hrubá mzda", month.hruba],
-                      ...(month.oop_applied
-                        ? [["OOP (študent, not taxed as pension base)", month.oop_applied]]
-                        : []),
-                      ["Nemocenské (NP 1.4%)", month.np],
-                      ["Starobné (SP 4%)", month.sp],
-                      ["Invalidné (IP 3%)", month.ip],
-                      ["Poist. v nezam. (PvN 1%)", month.pvn],
-                      ["Zdravotné (ZP 5%)", month.zp],
-                      ["Nezdaniteľná časť", month.nczd_applied],
-                      ["Daň", month.dan],
-                      ["Čistá mzda", month.cista],
-                      ["Celková cena práce", month.employer_cost],
-                    ].map(([k, v]) => (
+                    {payslipLines(month, partTime).map(([k, v]) => (
                       <tr key={k}>
                         <td>{k}</td>
                         <td>{eur(v)}</td>

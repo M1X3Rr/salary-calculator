@@ -382,6 +382,10 @@ button.ghost {
   padding: 8px 12px;
   cursor: pointer;
 }
+button.ghost:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; }
