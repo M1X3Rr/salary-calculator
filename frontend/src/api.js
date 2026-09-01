@@ -19,6 +19,30 @@ export const api = {
     fd.append("file", file);
     return fetch("/api/import", { method: "POST", body: fd }).then(json);
   },
+  resolveImport: (overwrite) =>
+    fetch("/api/import/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ overwrite }),
+    }).then(json),
+  cancelImport: () => fetch("/api/import/cancel", { method: "POST" }).then(json),
+  undoImport: () => fetch("/api/import/undo", { method: "POST" }).then(json),
+  downloadBackup: async () => {
+    const res = await fetch("/api/backup");
+    if (!res.ok) throw new Error("Backup failed.");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "salary-state.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  restoreBackup: (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch("/api/restore", { method: "POST", body: fd }).then(json);
+  },
   saveReceived: (payload) =>
     fetch("/api/received", {
       method: "POST",
@@ -36,6 +60,28 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    }).then(json),
+  previewRate: (hourly_rate) =>
+    fetch("/api/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hourly_rate }),
+    }).then(json),
+  addShift: (payload) =>
+    fetch("/api/shift", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(json),
+  updateShift: (payload) =>
+    fetch("/api/shift", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(json),
+  deleteShift: ({ date, start, end }) =>
+    fetch(`/api/shift?date=${encodeURIComponent(date)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, {
+      method: "DELETE",
     }).then(json),
 };
 
@@ -90,15 +136,6 @@ export const SETTING_HINTS = {
   er_prfs: "Employer II. pillar / related rate.",
   er_zp: "Employer health insurance rate.",
 };
-
-export function settingsEntries(draft) {
-  const source = draft || {};
-  const leading = SETTINGS_LEADING.map((key) => [key, key in source ? source[key] : ""]);
-  const rest = Object.keys(source)
-    .filter((key) => !SETTINGS_LEADING.includes(key))
-    .map((key) => [key, source[key]]);
-  return [...leading, ...rest];
-}
 
 export function hours(value) {
   if (value === null || value === undefined) return "—";

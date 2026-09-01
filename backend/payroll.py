@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -56,10 +57,13 @@ def overtime_hours_for_month(
     month: int,
     billed_hours: float,
     settings: dict[str, Any],
+    weeks: list[dict[str, Any]] | None = None,
 ) -> float:
-    """Hours above the part-time monthly quota (20 h/week = 4 h × weekdays)."""
+    """Hours above the weekly 20 h cap, summed for this month (prorated weeks)."""
     if str(settings.get("employment_type") or "part_time") == "full_time":
         return 0.0
+    if weeks:
+        return _r4(sum(float(w.get("overtime") or 0) for w in weeks))
     _, needed = needed_hours_for_month(year, month, settings)
     return _r4(max(0.0, float(billed_hours) - needed))
 
@@ -118,6 +122,7 @@ class ShiftPay:
     holiday_prem: float
     ot_prem: float
     brutto: float
+    reported_hours: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -216,6 +221,7 @@ def compute_shift(
         holiday_prem=holiday_prem,
         ot_prem=ot_prem,
         brutto=brutto,
+        reported_hours=None if reported_hours is None else _r4(float(reported_hours)),
     )
 
 
@@ -256,6 +262,7 @@ def month_payroll(
     osobne: float = 0.0,
     year: int | None = None,
     month: int | None = None,
+    weeks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     hours = _r4(sum(s.hours for s in shifts))
     night_h = _r4(sum(s.night_h for s in shifts))
@@ -269,7 +276,7 @@ def month_payroll(
     holiday_prem = _r2(sum(s.holiday_prem for s in shifts))
     ot_hours = 0.0
     if year is not None and month is not None:
-        ot_hours = overtime_hours_for_month(year, month, hours, settings)
+        ot_hours = overtime_hours_for_month(year, month, hours, settings, weeks=weeks)
     ot_base = float(settings.get("avg_earnings") or 0) or float(settings.get("hourly_rate") or 0)
     ot_prem = _r2(ot_hours * ot_base * float(settings.get("prem_ot_pct") or 0.25))
     hruba = _r2(sum(s.brutto for s in shifts) + ot_prem + float(osobne or 0))
@@ -381,3 +388,70 @@ def month_payroll(
         "cista": cista,
         "employer_cost": _r2(hruba + er),
     }
+
+
+def weeks_for_month(
+    year: int,
+    month: int,
+    all_shifts: list[ShiftPay],
+    settings: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Calendar weeks of this month only (clipped to month start/end)."""
+    last = calendar.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, last)
+    seen: list[tuple[int, int]] = []
+    found: set[tuple[int, int]] = set()
+    for day in range(1, last + 1):
+        iso = date(year, month, day).isocalendar()
+        key = (iso.year, iso.week)
+        if key not in found:
+            found.add(key)
+            seen.append(key)
+    hours_by_date: dict[str, float] = defaultdict(float)
+    for shift in all_shifts:
+        hours_by_date[shift.work_date] += float(shift.hours or 0)
+    part_time = str(settings.get("employment_type") or "part_time") != "full_time"
+    week_cap = float(settings.get("contract_h_week") or 20)
+    shift_h = float(settings.get("full_time_shift_hours") or 8)
+    weeks = []
+    for iso_year, iso_week in seen:
+        monday = date.fromisocalendar(iso_year, iso_week, 1)
+        sunday = date.fromisocalendar(iso_year, iso_week, 7)
+        start = max(monday, month_start)
+        end = min(sunday, month_end)
+        days = (end - start).days + 1
+        complete = days == 7
+        total = 0.0
+        cursor = start
+        while cursor <= end:
+            total += hours_by_date.get(cursor.isoformat(), 0.0)
+            cursor += timedelta(days=1)
+        if part_time:
+            needed = _r4(week_cap * (days / 7.0))
+            # OT pay only on a full Mon–Sun week; partial weeks still show a prorated bar.
+            overtime = _r4(max(0.0, total - needed)) if complete else 0.0
+        else:
+            weekdays = sum(
+                1
+                for offset in range(days)
+                if (start + timedelta(days=offset)).weekday() < 5
+            )
+            needed = _r4(weekdays * shift_h)
+            overtime = 0.0
+        weeks.append(
+            {
+                "week": len(weeks) + 1,
+                "iso_week": iso_week,
+                "iso_year": iso_year,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "days": days,
+                "complete": complete,
+                "hours": _r4(total),
+                "needed": needed,
+                "overtime": overtime,
+            }
+        )
+    return weeks
+
