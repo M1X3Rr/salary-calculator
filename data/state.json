@@ -1650,63 +1650,288 @@
       "start": "07:30",
       "end": "18:45",
       "reported_hours": 11.25
+    },
+    {
+      "date": "2026-08-31",
+      "start": "07:16",
+      "end": "14:36",
+      "reported_hours": 7.3167
     }
   ],
   "received": {
     "2026-07": {
       "amount": 908.83,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 736.0,
+        "osobne": 330.0,
+        "hruba": 1066.0,
+        "sp": 34.64,
+        "ip": 25.98,
+        "nczd": 497.23,
+        "dan": 96.55,
+        "cista": 908.83,
+        "vyuctovanie": 908.83,
+        "er_sp": 121.24,
+        "er_ip": 25.98,
+        "er_up": 8.52,
+        "er_gp": 2.66,
+        "er_prfs": 41.13
+      }
     },
     "2026-02": {
       "amount": 1732.86,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 640.0,
+        "osobne": 552.4,
+        "hruba": 1192.4,
+        "sp": 39.69,
+        "ip": 29.77,
+        "nczd": 497.23,
+        "dan": 118.88,
+        "cista": 1732.86,
+        "vyuctovanie": 1732.86,
+        "er_sp": 138.93,
+        "er_ip": 29.77,
+        "er_up": 9.53,
+        "er_gp": 2.98,
+        "er_prfs": 47.13
+      }
     },
     "2026-03": {
       "amount": 916.36,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 704.0,
+        "osobne": 372.0,
+        "hruba": 1076.0,
+        "sp": 35.04,
+        "ip": 26.28,
+        "nczd": 497.23,
+        "dan": 98.32,
+        "cista": 916.36,
+        "vyuctovanie": 916.36,
+        "er_sp": 122.64,
+        "er_ip": 26.28,
+        "er_up": 8.6,
+        "er_gp": 2.69,
+        "er_prfs": 41.61,
+        "employer_cost": 1277.82
+      }
     },
     "2026-04": {
       "amount": 1068.24,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 640.0,
+        "osobne": 637.6,
+        "sviatky": 2.0,
+        "hruba": 1277.6,
+        "sp": 43.1,
+        "ip": 32.32,
+        "nczd": 497.23,
+        "dan": 133.94,
+        "cista": 1068.24,
+        "vyuctovanie": 1068.24,
+        "er_sp": 150.86,
+        "er_ip": 32.32,
+        "er_up": 10.22,
+        "er_gp": 3.19,
+        "er_prfs": 51.18,
+        "employer_cost": 1525.37
+      }
     },
     "2026-05": {
       "amount": 1032.57,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 640.0,
+        "osobne": 580.24,
+        "hruba": 1230.24,
+        "sp": 41.2,
+        "ip": 30.9,
+        "nczd": 497.23,
+        "dan": 125.57,
+        "cista": 1032.57,
+        "vyuctovanie": 1032.57,
+        "er_sp": 144.23,
+        "er_ip": 30.9,
+        "er_up": 9.84,
+        "er_gp": 3.07,
+        "er_prfs": 48.93,
+        "employer_cost": 1467.21,
+        "sviatky_days": 1.0
+      }
     },
     "2026-06": {
       "amount": 1103.94,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 704.0,
+        "osobne": 621.0,
+        "sp": 45.0,
+        "ip": 33.75,
+        "nczd": 497.23,
+        "dan": 142.31,
+        "cista": 1103.94,
+        "vyuctovanie": 1103.94,
+        "er_sp": 157.5,
+        "er_ip": 33.75,
+        "er_up": 10.6,
+        "er_gp": 3.31,
+        "er_prfs": 53.43,
+        "employer_cost": 1583.59
+      }
     },
     "2026-08": {
       "note": ""
     },
     "2025-08": {
       "amount": 831.64,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 640.0,
+        "osobne": 464.0,
+        "hruba": 1104.0,
+        "sp": 44.16,
+        "ip": 33.12,
+        "dan": 195.08,
+        "cista": 831.64,
+        "vyuctovanie": 831.64,
+        "er_sp": 154.56,
+        "er_ip": 33.12,
+        "er_up": 8.83,
+        "er_gp": 2.76,
+        "er_prfs": 52.44,
+        "employer_cost": 1355.71
+      }
     },
     "2025-09": {
       "note": "",
-      "amount": 1162.0
+      "amount": 1162.0,
+      "stub": {
+        "zakladna": 672.0,
+        "osobne": 749.6,
+        "hruba": 1421.6,
+        "sp": 56.86,
+        "ip": 42.64,
+        "nczd": 479.48,
+        "dan": 160.1,
+        "cista": 1162.0,
+        "vyuctovanie": 1162.0,
+        "er_sp": 199.02,
+        "er_ip": 42.64,
+        "er_up": 11.37,
+        "er_gp": 3.55,
+        "er_prfs": 67.52,
+        "employer_cost": 1745.7
+      }
     },
     "2025-10": {
       "amount": 1172.13,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 736.0,
+        "osobne": 684.0,
+        "hruba": 1420.0,
+        "sp": 48.8,
+        "ip": 36.6,
+        "nczd": 479.48,
+        "dan": 162.47,
+        "cista": 1172.13,
+        "vyuctovanie": 1172.13,
+        "er_sp": 170.8,
+        "er_ip": 36.6,
+        "er_up": 11.36,
+        "er_gp": 3.55,
+        "er_prfs": 57.95,
+        "employer_cost": 1700.26
+      }
     },
     "2025-11": {
       "amount": 1111.86,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 640.0,
+        "osobne": 700.0,
+        "hruba": 1340.0,
+        "sp": 45.6,
+        "ip": 34.2,
+        "nczd": 479.48,
+        "dan": 148.34,
+        "cista": 1111.86,
+        "vyuctovanie": 1111.86,
+        "er_sp": 159.6,
+        "er_ip": 34.2,
+        "er_up": 10.72,
+        "er_gp": 3.35,
+        "er_prfs": 54.15,
+        "employer_cost": 1602.02
+      }
     },
     "2025-07": {
       "amount": 751.07,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 608.0,
+        "osobne": 389.04,
+        "hruba": 997.04,
+        "sp": 39.88,
+        "ip": 29.91,
+        "dan": 176.18,
+        "cista": 751.07,
+        "vyuctovanie": 751.07,
+        "er_sp": 139.58,
+        "er_ip": 29.91,
+        "er_up": 7.97,
+        "er_gp": 2.49,
+        "er_prfs": 47.35,
+        "employer_cost": 1224.34
+      }
     },
     "2025-12": {
       "amount": 971.88,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 640.0,
+        "osobne": 514.16,
+        "hruba": 1154.16,
+        "sp": 38.16,
+        "ip": 28.62,
+        "nczd": 479.48,
+        "dan": 115.5,
+        "cista": 971.88,
+        "vyuctovanie": 971.88,
+        "er_sp": 133.58,
+        "er_ip": 28.62,
+        "er_up": 9.23,
+        "er_gp": 2.88,
+        "er_prfs": 45.32,
+        "employer_cost": 1373.79,
+        "sviatky_days": 3.0
+      }
     },
     "2026-01": {
       "amount": 1055.72,
-      "note": ""
+      "note": "",
+      "stub": {
+        "zakladna": 640.0,
+        "osobne": 621.0,
+        "hruba": 1261.0,
+        "sp": 42.44,
+        "ip": 31.83,
+        "nczd": 497.23,
+        "dan": 131.01,
+        "cista": 1055.72,
+        "vyuctovanie": 1055.72,
+        "er_sp": 148.54,
+        "er_ip": 31.83,
+        "er_up": 10.08,
+        "er_gp": 3.15,
+        "er_prfs": 50.39,
+        "employer_cost": 1504.99
+      }
     }
   },
   "osobne": {
@@ -1803,9 +2028,25 @@
       "imported_at": "2026-08-28T20:25:19",
       "shift_count": 21,
       "replaced_dates": 21
+    },
+    {
+      "filename": "20260901_3873d5cc_6a9670a713cdd.xls",
+      "employee": "Mikhailo Fesenko",
+      "department": "HQ collection",
+      "imported_at": "2026-09-01T08:29:14",
+      "shift_count": 21,
+      "replaced_dates": 21
+    },
+    {
+      "filename": "20260901_3873d5cc_6a967121b6ef0.xls",
+      "employee": "Mikhailo Fesenko",
+      "department": "HQ collection",
+      "imported_at": "2026-09-01T08:31:08",
+      "shift_count": 165,
+      "replaced_dates": 165
     }
   ],
-  "updated_at": "2026-08-28T20:48:50",
+  "updated_at": "2026-09-01T10:32:32",
   "last_import": {
     "filename": "20260827_e2e4784c_6a8fd57a6803a.xls",
     "at": "2026-08-27T08:22:43",

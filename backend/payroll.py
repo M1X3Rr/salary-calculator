@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -118,6 +119,7 @@ class ShiftPay:
     holiday_prem: float
     ot_prem: float
     brutto: float
+    reported_hours: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -216,6 +218,7 @@ def compute_shift(
         holiday_prem=holiday_prem,
         ot_prem=ot_prem,
         brutto=brutto,
+        reported_hours=None if reported_hours is None else _r4(float(reported_hours)),
     )
 
 
@@ -381,3 +384,57 @@ def month_payroll(
         "cista": cista,
         "employer_cost": _r2(hruba + er),
     }
+
+
+def weeks_for_month(
+    year: int,
+    month: int,
+    all_shifts: list[ShiftPay],
+    settings: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Calendar weeks of this month only (clipped to month start/end)."""
+    last = calendar.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, last)
+    seen: list[tuple[int, int]] = []
+    found: set[tuple[int, int]] = set()
+    for day in range(1, last + 1):
+        iso = date(year, month, day).isocalendar()
+        key = (iso.year, iso.week)
+        if key not in found:
+            found.add(key)
+            seen.append(key)
+    hours_by_date: dict[str, float] = defaultdict(float)
+    for shift in all_shifts:
+        hours_by_date[shift.work_date] += float(shift.hours or 0)
+    part_time = str(settings.get("employment_type") or "part_time") != "full_time"
+    if part_time:
+        needed = float(settings.get("contract_h_week") or 20)
+    else:
+        needed = 5.0 * float(settings.get("full_time_shift_hours") or 8)
+    weeks = []
+    for iso_year, iso_week in seen:
+        monday = date.fromisocalendar(iso_year, iso_week, 1)
+        sunday = date.fromisocalendar(iso_year, iso_week, 7)
+        start = max(monday, month_start)
+        end = min(sunday, month_end)
+        total = 0.0
+        cursor = start
+        while cursor <= end:
+            total += hours_by_date.get(cursor.isoformat(), 0.0)
+            cursor += timedelta(days=1)
+        overtime = _r4(max(0.0, total - needed))
+        weeks.append(
+            {
+                "week": len(weeks) + 1,
+                "iso_week": iso_week,
+                "iso_year": iso_year,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "hours": _r4(total),
+                "needed": _r4(needed),
+                "overtime": overtime,
+            }
+        )
+    return weeks
+
