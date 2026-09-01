@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Bar,
-  BarChart,
   CartesianGrid,
+  Cell,
+  ComposedChart,
   Legend,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,6 +15,7 @@ import { api, calendarCells, hours, isOvernight, modeSubtitle, SETTING_HINTS } f
 import { downloadMonthReport, downloadYearReport, payslipLines } from "./report.js";
 import {
   STUB_GROUPS,
+  fillStubFromCalc,
   isStubIncomplete,
   parseStub,
   settingsGroups,
@@ -94,6 +97,45 @@ function HoursNeededBar({ worked, needed, label, extraHint }) {
   );
 }
 
+function HoursSparkline({ months, partTime }) {
+  return (
+    <div className="panel hours-spark">
+      <h3>{partTime ? "Hours vs 20 h/week" : "Hours vs monthly target"}</h3>
+      <div className="spark-row">
+        {months.map((m) => {
+          const needed = Number(m.needed_hours) || 0;
+          const worked = Number(m.hours) || 0;
+          const pct = needed > 0 ? Math.min(100, (worked / needed) * 100) : 0;
+          const met = needed > 0 && worked + 1 / 60 >= needed;
+          return (
+            <div
+              key={m.month}
+              className="spark-col"
+              title={`${m.label}: ${hours(worked)} / ${hours(needed)}`}
+            >
+              <div className="spark-track">
+                <div className={`spark-fill${met ? " met" : ""}`} style={{ height: `${pct}%` }} />
+              </div>
+              <span>{m.label.slice(0, 3)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function shiftChips(shift, weekOt) {
+  if (!shift) return [];
+  const chips = [];
+  if (Number(shift.night_h) > 0.05) chips.push({ k: "night", t: "Night" });
+  if (Number(shift.sat_h) > 0.05) chips.push({ k: "sat", t: "Sat" });
+  if (Number(shift.sun_h) > 0.05) chips.push({ k: "sun", t: "Sun" });
+  if (Number(shift.holiday_h) > 0.05 || shift.holiday_name) chips.push({ k: "hol", t: "Sviatok" });
+  if (weekOt) chips.push({ k: "ot", t: "OT" });
+  return chips;
+}
+
 export default function App() {
   const [tab, setTab] = useState("overview");
   const [data, setData] = useState(null);
@@ -140,9 +182,11 @@ export default function App() {
     const report = await api.report();
     applyReport(report);
     const years = report.years || [];
-    setYear((y) => y || years[years.length - 1] || "");
+    const today = new Date().toISOString().slice(0, 7);
+    const hasToday = (report.months || []).some((m) => m.month === today);
+    setYear((y) => y || (hasToday ? today.slice(0, 4) : years[years.length - 1] || ""));
     if (report.months?.length && !selectedMonth) {
-      setSelectedMonth(report.months[report.months.length - 1].month);
+      setSelectedMonth(hasToday ? today : report.months[report.months.length - 1].month);
     }
   };
 
@@ -245,6 +289,55 @@ export default function App() {
     setWeekView(false);
     setWeekIndex(0);
   };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const el = e.target;
+      const typing =
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable);
+      if (e.key === "Escape") {
+        if (stubOpen) {
+          setStubOpen(false);
+          e.preventDefault();
+          return;
+        }
+        if (shiftModal) {
+          setShiftModal(null);
+          e.preventDefault();
+          return;
+        }
+        if (importPreview) {
+          api.cancelImport().catch(() => {});
+          setImportPreview(null);
+          setStatus("Import cancelled. Stored hours were not changed.");
+          e.preventDefault();
+        }
+        return;
+      }
+      if (el?.id === "vac-note" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        document.querySelector(".note-box .primary")?.click();
+        return;
+      }
+      if (typing) return;
+      if (tab !== "month") return;
+      if (e.key === "[" && prevMonth) goMonth(prevMonth.month);
+      if (e.key === "]" && nextMonth) goMonth(nextMonth.month);
+      if (e.key === "w" || e.key === "W") {
+        setWeekView((open) => {
+          if (open) return false;
+          setWeekIndex(0);
+          return true;
+        });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, prevMonth, nextMonth, stubOpen, shiftModal, importPreview]);
 
   const finishImport = (report) => {
     applyReport(report);
@@ -399,24 +492,28 @@ export default function App() {
           {data.shift_count} shifts stored
           {data.updated_at ? ` · updated ${data.updated_at}` : ""}
         </p>
-        {error && <p className="err">{error}</p>}
-        {status && <p className="msg">{status}</p>}
-        {unsavedKeys.length > 0 && (
-          <p className="preview-banner">
-            {unsavedKeys.length} unsaved month{unsavedKeys.length === 1 ? "" : "s"}.
-            <button
-              type="button"
-              className="primary"
-              onClick={async () => {
-                for (const key of unsavedKeys) {
-                  const hit = (data.months || []).find((x) => x.month === key);
-                  if (hit) await saveMonth(hit);
-                }
-              }}
-            >
-              Save all
-            </button>
-          </p>
+        {(error || status || unsavedKeys.length > 0) && (
+          <div className="toast-stack" role="status">
+            {error && <p className="err">{error}</p>}
+            {!error && unsavedKeys.length > 0 && (
+              <p className="preview-banner">
+                {unsavedKeys.length} unsaved month{unsavedKeys.length === 1 ? "" : "s"}.
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={async () => {
+                    for (const key of unsavedKeys) {
+                      const hit = (data.months || []).find((x) => x.month === key);
+                      if (hit) await saveMonth(hit);
+                    }
+                  }}
+                >
+                  Save all
+                </button>
+              </p>
+            )}
+            {!error && unsavedKeys.length === 0 && status && <p className="msg">{status}</p>}
+          </div>
         )}
         {data.preview?.hourly_rate != null && (
           <p className="preview-banner">
@@ -533,21 +630,50 @@ export default function App() {
                 }
               />
             )}
+            {months.length > 0 && (
+              <HoursSparkline months={months} partTime={partTime} />
+            )}
             <div className="panel" style={{ height: 320 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={months}>
+                <ComposedChart data={months.map((m) => ({
+                  ...m,
+                  difference: m.received == null ? null : m.received - m.cista,
+                }))}>
                   <CartesianGrid stroke={chartGrid} vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: chartMuted, fontSize: 11 }} />
-                  <YAxis tick={{ fill: chartMuted, fontSize: 11 }} />
-                  <Tooltip formatter={(v) => eur(v)} />
+                  <YAxis yAxisId="left" tick={{ fill: chartMuted, fontSize: 11 }} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fill: chartMuted, fontSize: 11 }} />
+                  <Tooltip formatter={(v, name) => (name === "Difference" ? eur(v) : eur(v))} />
                   <Legend />
-                  <Bar dataKey="hruba" name="Brutto" fill="#c4a35a" />
-                  <Bar dataKey="cista" name="Calculated netto" fill="#3dcf8e" />
-                  <Bar dataKey="received" name="Received" fill="#6ea8fe" />
-                </BarChart>
+                  <Bar yAxisId="left" dataKey="hruba" name="Brutto" fill="#c4a35a" />
+                  <Bar yAxisId="left" dataKey="cista" name="Calculated netto" fill="#3dcf8e" />
+                  <Bar yAxisId="left" dataKey="received" name="Received">
+                    {months.map((m) => (
+                      <Cell
+                        key={m.month}
+                        fill={
+                          m.received == null
+                            ? "#6ea8fe"
+                            : m.received >= m.cista
+                              ? light ? "#1b7a4e" : "#3dcf8e"
+                              : light ? "#a33b2b" : "#ef6b6b"
+                        }
+                      />
+                    ))}
+                  </Bar>
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="difference"
+                    name="Difference"
+                    stroke="#e67e22"
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
-            <div className="panel">
+            <div className="panel overview-table">
               <table>
                 <thead>
                   <tr>
@@ -792,6 +918,8 @@ export default function App() {
               </div>
               <MonthCalendar
                 month={month}
+                weeks={monthWeeks}
+                weekIndex={weekView ? weekIndex : -1}
                 partTime={partTime}
                 selectedIso={selectedDay}
                 noteDraft={noteDraft}
@@ -869,6 +997,13 @@ export default function App() {
                     [month.month]: { ...prev[month.month], received: String(raw) },
                   }));
                 }}
+                onFillFromCalc={() => {
+                  const filled = fillStubFromCalc(monthStubDraft, month);
+                  setDrafts((prev) => ({
+                    ...prev,
+                    [month.month]: { ...prev[month.month], stub: filled },
+                  }));
+                }}
                 onSave={(opts) => {
                   const patch = { stub: monthStubDraft };
                   if (opts?.osobneZero) patch.osobne = 0;
@@ -928,6 +1063,60 @@ export default function App() {
               New days are added. Days that already match are left alone. If a stored day differs from the file, you
               choose leave or overwrite.
             </p>
+            <div className="row" style={{ marginBottom: 16 }}>
+              <button
+                type="button"
+                className="ghost"
+                disabled={!data.can_undo_import}
+                onClick={async () => {
+                  setError("");
+                  try {
+                    finishImport(await api.undoImport());
+                    setStatus("Last import undone.");
+                  } catch (e) {
+                    setError(e.message);
+                  }
+                }}
+              >
+                Undo last import
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await api.downloadBackup();
+                    setStatus("Downloaded salary-state.json.");
+                  } catch (e) {
+                    setError(e.message);
+                  }
+                }}
+              >
+                Download backup
+              </button>
+              <label className="ghost" style={{ cursor: "pointer", padding: "8px 12px" }}>
+                Restore backup
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    if (!window.confirm("Replace all local payroll data with this backup?")) return;
+                    setError("");
+                    try {
+                      finishImport(await api.restoreBackup(file));
+                      setStatus("Backup restored.");
+                    } catch (err) {
+                      setError(err.message);
+                    }
+                  }}
+                />
+              </label>
+            </div>
             {data.imports?.length > 0 && (
               <table>
                 <thead>
@@ -1018,6 +1207,8 @@ function ModeSwitch({ mode, onChange }) {
 
 function MonthCalendar({
   month,
+  weeks = [],
+  weekIndex = -1,
   partTime,
   selectedIso,
   noteDraft,
@@ -1070,12 +1261,19 @@ function MonthCalendar({
           <Fragment key={`w-${wi}`}>
             <button
               type="button"
-              className="cal-week-num"
+              className={`cal-week-num${weekIndex === wi ? " active" : ""}`}
               title={`Week ${wi + 1} vs 20 h`}
               aria-label={`Open week ${wi + 1}`}
               onClick={() => onOpenWeek?.(wi)}
             >
               {wi + 1}
+              <span className="cal-week-tick" aria-hidden="true">
+                <span
+                  style={{
+                    width: `${Math.min(100, weeks[wi]?.needed ? ((weeks[wi].hours || 0) / weeks[wi].needed) * 100 : 0)}%`,
+                  }}
+                />
+              </span>
             </button>
             {row.map((cell, ci) => {
               if (!cell) return <div key={`e-${wi}-${ci}`} className="cal-cell empty-cell" />;
@@ -1138,6 +1336,13 @@ function MonthCalendar({
                       </strong>
                       {overnight && <span className="ov-tag">overnight</span>}
                       <span>{hours(shift.hours)}</span>
+                      <span className="chip-row">
+                        {shiftChips(shift, Boolean(weeks[wi]?.overtime)).map((c) => (
+                          <span key={c.k} className={`prem-chip ${c.k}`}>
+                            {c.t}
+                          </span>
+                        ))}
+                      </span>
                     </button>
                   ) : (
                     <>
@@ -1216,7 +1421,7 @@ function MonthCalendar({
             rows={3}
             value={noteDraft}
             onChange={(e) => onNoteChange(e.target.value)}
-            placeholder="Why you were off, or why you were called in…"
+            placeholder="Why you were off, or why you were called in… Ctrl+Enter to save"
           />
           <button type="button" className="primary" onClick={onSaveNote}>
             Save note
@@ -1358,7 +1563,9 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
               <th>Day</th>
               <th>Start</th>
               <th>End</th>
-              <th>Hours</th>
+              <th>Clock</th>
+              <th>Break</th>
+              <th>Billed</th>
               <th>Type</th>
               <th>Brutto</th>
             </tr>
@@ -1366,7 +1573,7 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
           <tbody>
             {shifts.length === 0 ? (
               <tr>
-                <td colSpan={7}>No shifts this week.</td>
+                <td colSpan={9}>No shifts this week.</td>
               </tr>
             ) : (
               shifts.map((s) => (
@@ -1375,6 +1582,8 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
                   <td>{s.weekday}</td>
                   <td>{s.start}</td>
                   <td>{s.end}</td>
+                  <td>{hours(s.clock_hours)}</td>
+                  <td>{hours(s.break_hours)}</td>
                   <td>{hours(s.hours)}</td>
                   <td>{s.holiday_name || s.day_type}</td>
                   <td>{eur(s.brutto)}</td>
@@ -1388,7 +1597,7 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
   );
 }
 
-function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, onSave, onClose }) {
+function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, onFillFromCalc, onSave, onClose }) {
   const [keepZero, setKeepZero] = useState(Boolean(osobneZero));
   const copyable = parseReceived(stub?.vyuctovanie || stub?.cista) != null;
   return (
@@ -1406,6 +1615,9 @@ function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, onSave, 
         <div className="row">
           <button type="button" className="ghost" disabled={!copyable} onClick={onCopyReceived}>
             Copy čistá / vyúčtovanie into Received
+          </button>
+          <button type="button" className="ghost" onClick={onFillFromCalc}>
+            Fill empty fields from calc
           </button>
           <label className="osobne-zero">
             <input type="checkbox" checked={keepZero} onChange={(e) => setKeepZero(e.target.checked)} />

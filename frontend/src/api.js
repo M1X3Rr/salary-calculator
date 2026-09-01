@@ -26,6 +26,23 @@ export const api = {
       body: JSON.stringify({ overwrite }),
     }).then(json),
   cancelImport: () => fetch("/api/import/cancel", { method: "POST" }).then(json),
+  undoImport: () => fetch("/api/import/undo", { method: "POST" }).then(json),
+  downloadBackup: async () => {
+    const res = await fetch("/api/backup");
+    if (!res.ok) throw new Error("Backup failed.");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "salary-state.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  restoreBackup: (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch("/api/restore", { method: "POST", body: fd }).then(json);
+  },
   saveReceived: (payload) =>
     fetch("/api/received", {
       method: "POST",

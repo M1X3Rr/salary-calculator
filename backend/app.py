@@ -6,16 +6,17 @@ from copy import deepcopy
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Any
+import json
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from holidays import holidays_in_month
 from parser import parse_export
 from payroll import compute_shift, month_payroll, needed_hours_for_month, weeks_for_month
-from storage import load_state, save_state
+from storage import STATE_PATH, load_state, save_state
 from stub import (
     compact_stub,
     explain_month,
@@ -148,6 +149,10 @@ def _commit_import(state: dict[str, Any], pending: dict[str, Any], overwrite_dat
     incoming = pending["shifts"]
     merged = merge_import(state.get("shifts", []), incoming, overwrite_dates)
     replaced = len(overwrite_dates)
+    state["import_undo"] = {
+        "shifts": deepcopy(state.get("shifts", [])),
+        "imports": deepcopy(state.get("imports", [])),
+    }
     state["shifts"] = merged
     state["imports"].append(
         {
@@ -284,6 +289,7 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
         "years": years,
         "months": months,
         "shift_count": len(paid),
+        "can_undo_import": bool(state.get("import_undo")),
     }
 
 
@@ -368,6 +374,47 @@ def import_cancel():
     state.pop("pending_import", None)
     save_state(state)
     return {"ok": True}
+
+
+@app.post("/api/import/undo")
+def import_undo():
+    state = load_state()
+    snap = state.get("import_undo")
+    if not isinstance(snap, dict):
+        raise HTTPException(400, "Nothing to undo.")
+    state["shifts"] = snap.get("shifts") or []
+    state["imports"] = snap.get("imports") or []
+    state.pop("import_undo", None)
+    save_state(state)
+    report = build_report(state)
+    report["import_meta"] = {"undone": True}
+    return report
+
+
+@app.get("/api/backup")
+def download_backup():
+    state = load_state()
+    save_state(state)
+    return FileResponse(
+        STATE_PATH,
+        media_type="application/json",
+        filename="salary-state.json",
+    )
+
+
+@app.post("/api/restore")
+async def restore_backup(file: UploadFile = File(...)):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Empty file")
+    try:
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, "Not a JSON backup.") from exc
+    if not isinstance(payload, dict) or "settings" not in payload:
+        raise HTTPException(400, "Backup is missing settings.")
+    save_state(payload)
+    return build_report(load_state())
 
 
 @app.put("/api/vacation")
@@ -500,5 +547,6 @@ def clear_shifts():
     state["shifts"] = []
     state["imports"] = []
     state.pop("pending_import", None)
+    state.pop("import_undo", None)
     save_state(state)
     return build_report(state)

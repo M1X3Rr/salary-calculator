@@ -80,6 +80,39 @@ export function parseStub(stub) {
   return out;
 }
 
+export function fillStubFromCalc(stub, month) {
+  const map = {
+    zakladna: "basic",
+    osobne: "osobne",
+    sviatky: "holiday_prem",
+    noc: "night_prem",
+    noc_hours: "night_h",
+    sobota: "sat_prem",
+    sobota_hours: "sat_h",
+    nedela: "sun_prem",
+    nedela_hours: "sun_h",
+    hruba: "hruba",
+    np: "np",
+    sp: "sp",
+    ip: "ip",
+    pvn: "pvn",
+    zp: "zp",
+    nczd: "nczd_applied",
+    dan: "dan",
+    cista: "cista",
+    employer_cost: "employer_cost",
+  };
+  const out = { ...emptyStub(), ...stub };
+  for (const [stubKey, calcKey] of Object.entries(map)) {
+    const cur = stub?.[stubKey];
+    if (cur !== "" && cur != null) continue;
+    const v = month?.[calcKey];
+    if (v == null || v === "") continue;
+    out[stubKey] = v;
+  }
+  return out;
+}
+
 export function isStubIncomplete(received, stub) {
   if (received == null) return false;
   return !DETAIL_KEYS.some((key) => {
