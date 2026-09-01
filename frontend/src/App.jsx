@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -111,6 +111,7 @@ export default function App() {
   const [weekIndex, setWeekIndex] = useState(0);
   const [shiftModal, setShiftModal] = useState(null);
   const [whatIf, setWhatIf] = useState("");
+  const [importPreview, setImportPreview] = useState(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -195,6 +196,10 @@ export default function App() {
   const monthStubDraft = monthDraft.stub || stubFromMonth(month);
   const monthIncomplete = isStubIncomplete(monthReceived, monthStubDraft);
   const monthWeeks = weeksOfMonth(month);
+  const unsavedKeys = Object.keys(drafts).filter((k) => {
+    const d = drafts[k];
+    return d && ("received" in d || "note" in d || d.stub || d.osobne != null);
+  });
 
   const openStubFor = (key) => {
     if (key) setSelectedMonth(key);
@@ -241,32 +246,62 @@ export default function App() {
     setWeekIndex(0);
   };
 
+  const finishImport = (report) => {
+    applyReport(report);
+    const years = report.years || [];
+    setYear(years[years.length - 1] || "");
+    if (report.months?.length) setSelectedMonth(report.months[report.months.length - 1].month);
+    setImportPreview(null);
+    const meta = report.import_meta || {};
+    const bits = [];
+    if (meta.added) bits.push(`${meta.added} new`);
+    if (meta.unchanged) bits.push(`${meta.unchanged} unchanged`);
+    if (meta.replaced) bits.push(`${meta.replaced} overwritten`);
+    if (meta.kept) bits.push(`${meta.kept} kept as stored`);
+    setStatus(
+      `Imported ${meta.employee || "hours"}${bits.length ? ` · ${bits.join(", ")}` : ` · ${report.shift_count} shifts`}.`
+    );
+  };
+
   const onImport = async (file) => {
     if (!file) return;
     setError("");
     setStatus("Importing…");
     try {
       const report = await api.importFile(file);
-      applyReport(report);
-      const years = report.years || [];
-      setYear(years[years.length - 1] || "");
-      if (report.months?.length) setSelectedMonth(report.months[report.months.length - 1].month);
-      setStatus(
-        `Imported ${report.import_meta?.added ?? report.shift_count} shifts for ${report.import_meta?.employee || "you"}.`
-      );
+      if (report.preview) {
+        setImportPreview(report);
+        setStatus(
+          `${report.conflicts.length} stored day${report.conflicts.length === 1 ? "" : "s"} differ from this file. Choose leave or overwrite.`
+        );
+        return;
+      }
+      finishImport(report);
     } catch (e) {
       setError(e.message);
       setStatus("");
     }
   };
 
-  const saveMonth = async (m) => {
-    const draft = drafts[m.month] || {};
+  const resolveImport = async (overwrite) => {
+    setError("");
+    try {
+      const report = await api.resolveImport(overwrite);
+      finishImport(report);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const saveMonth = async (m, patch = {}) => {
+    const draft = { ...(drafts[m.month] || {}), ...patch };
     setError("");
     try {
       const payload = {
         month: m.month,
-        received: parseReceived(Object.prototype.hasOwnProperty.call(draft, "received") ? draft.received : m.received),
+        received: parseReceived(
+          Object.prototype.hasOwnProperty.call(draft, "received") ? draft.received : m.received
+        ),
         note: draft.note ?? m.note ?? "",
         osobne: draft.osobne === "" || draft.osobne == null ? m.osobne : Number(draft.osobne),
       };
@@ -274,10 +309,9 @@ export default function App() {
       await api.saveReceived(payload);
       await refreshCalc();
       setDrafts((prev) => {
-        const cur = prev[m.month];
-        if (!cur) return prev;
-        const { received: _ignored, stub: _s, ...rest } = cur;
-        return { ...prev, [m.month]: rest };
+        const next = { ...prev };
+        delete next[m.month];
+        return next;
       });
       setStatus(`Saved ${m.label}.`);
     } catch (e) {
@@ -321,9 +355,6 @@ export default function App() {
   const partTime = mode !== "full_time";
   const shiftHours = Number(data?.settings?.full_time_shift_hours) || 8;
   const shiftLabel = Number.isInteger(shiftHours) ? String(shiftHours) : String(shiftHours);
-  const weekHours = Number(data?.settings?.contract_h_week) || 20;
-  const partDaily = weekHours / 5;
-  const partDailyLabel = Number.isInteger(partDaily) ? String(partDaily) : partDaily.toFixed(1);
   const light = theme === "light";
   const chartMuted = light ? "#6b6258" : "#8ea0b8";
   const chartGrid = light ? "#e4d9c8" : "#2c4060";
@@ -370,6 +401,23 @@ export default function App() {
         </p>
         {error && <p className="err">{error}</p>}
         {status && <p className="msg">{status}</p>}
+        {unsavedKeys.length > 0 && (
+          <p className="preview-banner">
+            {unsavedKeys.length} unsaved month{unsavedKeys.length === 1 ? "" : "s"}.
+            <button
+              type="button"
+              className="primary"
+              onClick={async () => {
+                for (const key of unsavedKeys) {
+                  const hit = (data.months || []).find((x) => x.month === key);
+                  if (hit) await saveMonth(hit);
+                }
+              }}
+            >
+              Save all
+            </button>
+          </p>
+        )}
         {data.preview?.hourly_rate != null && (
           <p className="preview-banner">
             Preview at {data.preview.hourly_rate} €/h — not saved.
@@ -431,7 +479,7 @@ export default function App() {
                     months: reportMonths,
                     totals,
                     hoursLabel: partTime
-                      ? `${totals.workingDays} weekdays × ${partDailyLabel} h (${weekHours} h/week; vacation does not reduce target)`
+                      ? `20 h/week cap · partial weeks prorated`
                       : `${totals.workingDays} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
                   });
                   setStatus(`Downloaded overview report for ${year}.`);
@@ -477,10 +525,10 @@ export default function App() {
               <HoursNeededBar
                 worked={totals.hours || 0}
                 needed={totals.neededHours || 0}
-                extraHint={partTime ? "paid as OT" : ""}
+                extraHint={partTime ? "OT paid on full weeks only" : ""}
                 label={
                   partTime
-                    ? `${totals.workingDays} weekdays × ${partDailyLabel} h (${weekHours} h/week; vacation does not reduce target)`
+                    ? `20 h/week cap · partial weeks prorated`
                     : `${totals.workingDays} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`
                 }
               />
@@ -544,6 +592,7 @@ export default function App() {
                                 [m.month]: { ...prev[m.month], received: e.target.value },
                               }))
                             }
+                            onBlur={(e) => saveMonth(m, { received: e.target.value })}
                           />
                             {incomplete ? (
                               <StubOpenButton
@@ -572,13 +621,10 @@ export default function App() {
                                 [m.month]: { ...prev[m.month], note: e.target.value },
                               }))
                             }
+                            onBlur={(e) => saveMonth(m, { note: e.target.value })}
                           />
                         </td>
-                        <td>
-                          <button className="primary" onClick={() => saveMonth(m)}>
-                            Save
-                          </button>
-                        </td>
+                        <td></td>
                       </tr>
                     );
                   })}
@@ -615,6 +661,7 @@ export default function App() {
                         [month.month]: { ...prev[month.month], received: e.target.value },
                       }))
                     }
+                    onBlur={(e) => saveMonth(month, { received: e.target.value })}
                   />
                   <StubOpenButton
                     warn={monthIncomplete}
@@ -626,37 +673,18 @@ export default function App() {
                     }
                   />
                 </span>
-                <button className="primary" onClick={() => saveMonth(month)}>
-                  Save received
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => {
-                    if (weekView) {
+                {weekView && (
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
                       setWeekView(false);
-                      return;
-                    }
-                    setWeekIndex(0);
-                    setWeekView(true);
-                  }}
-                >
-                  {weekView ? "Back to month" : "Week view"}
-                </button>
-                <label>
-                  Preview €/h{" "}
-                  <input
-                    type="number"
-                    step="0.01"
-                    style={{ width: 88 }}
-                    placeholder={String(data.settings.hourly_rate || "")}
-                    value={whatIf}
-                    onChange={(e) => setWhatIf(e.target.value)}
-                  />
-                </label>
-                <button type="button" className="ghost" onClick={applyWhatIf}>
-                  Apply preview
-                </button>
+                      setWeekIndex(0);
+                    }}
+                  >
+                    Back to month
+                  </button>
+                )}
                 <button
                   type="button"
                   className="ghost"
@@ -669,7 +697,7 @@ export default function App() {
                       received: monthReceived,
                       difference: monthDiff,
                       hoursLabel: partTime
-                        ? `${month.working_days ?? 0} weekdays × ${partDailyLabel} h (${weekHours} h/week; vacation does not reduce target)`
+                        ? `${month.working_days ?? 0} weekdays · 20 h/week cap (partial weeks prorated)`
                         : `${month.working_days ?? 0} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
                     });
                     setStatus(`Downloaded payslip for ${month.label}.`);
@@ -741,10 +769,10 @@ export default function App() {
             <HoursNeededBar
               worked={month.hours || 0}
               needed={month.needed_hours || 0}
-              extraHint={partTime ? "paid as OT" : ""}
+              extraHint={partTime ? "OT paid on full weeks only" : ""}
               label={
                 partTime
-                  ? `${month.working_days ?? 0} weekdays × ${partDailyLabel} h (${weekHours} h/week; vacation does not reduce target)`
+                  ? `20 h/week cap · partial weeks prorated`
                   : `${month.working_days ?? 0} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`
               }
             />
@@ -783,6 +811,19 @@ export default function App() {
                     old_end: shift.end,
                   })
                 }
+                onDeleteShift={(shift) => {
+                  if (!window.confirm(`Delete shift ${shift.work_date} ${shift.start}–${shift.end}?`)) return;
+                  saveShift({
+                    delete: true,
+                    old_date: shift.work_date,
+                    old_start: shift.start,
+                    old_end: shift.end,
+                  });
+                }}
+                onOpenWeek={(idx) => {
+                  setWeekIndex(idx);
+                  setWeekView(true);
+                }}
                 onToggleVac={(iso) => {
                   const vac = month.vacation || { dates: [], notes: {} };
                   const on = vac.dates.includes(iso);
@@ -804,59 +845,13 @@ export default function App() {
                 }}
               />
             </div>
-            <div className="panel">
-              <h3>Shifts</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Day</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Hours</th>
-                    <th>Night</th>
-                    <th>Type</th>
-                    <th>Brutto</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {month.shifts.map((s) => (
-                    <tr key={`${s.work_date}-${s.start}`}>
-                      <td>{s.work_date}</td>
-                      <td>{s.weekday}</td>
-                      <td>{s.start}</td>
-                      <td>{s.end}</td>
-                      <td>{hours(s.hours)}</td>
-                      <td>{hours(s.night_h)}</td>
-                      <td>{s.holiday_name || s.day_type}</td>
-                      <td>{eur(s.brutto)}</td>
-                      <td>
-                        <button type="button" className="ghost" onClick={() =>
-                          setShiftModal({
-                            date: s.work_date,
-                            start: s.start,
-                            end: s.end,
-                            reported_hours: s.reported_hours ?? "",
-                            old_date: s.work_date,
-                            old_start: s.start,
-                            old_end: s.end,
-                          })
-                        }>
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
               </>
             )}
             {stubOpen && (
               <StubModal
                 month={month}
                 stub={monthStubDraft}
+                osobneZero={Number(monthDraft.osobne ?? month.osobne ?? 0) === 0}
                 onChange={(key, value) =>
                   setDrafts((prev) => ({
                     ...prev,
@@ -866,8 +861,21 @@ export default function App() {
                     },
                   }))
                 }
-                onSave={() => {
-                  saveMonth(month);
+                onCopyReceived={() => {
+                  const raw = monthStubDraft.vyuctovanie || monthStubDraft.cista;
+                  if (parseReceived(raw) == null) return;
+                  setDrafts((prev) => ({
+                    ...prev,
+                    [month.month]: { ...prev[month.month], received: String(raw) },
+                  }));
+                }}
+                onSave={(opts) => {
+                  const patch = { stub: monthStubDraft };
+                  if (opts?.osobneZero) patch.osobne = 0;
+                  if (parseReceived(monthStubDraft.vyuctovanie || monthStubDraft.cista) != null && opts?.copyReceived) {
+                    patch.received = String(monthStubDraft.vyuctovanie || monthStubDraft.cista);
+                  }
+                  saveMonth(month, patch);
                 }}
                 onClose={() => setStubOpen(false)}
               />
@@ -881,6 +889,21 @@ export default function App() {
             onChange={setShiftModal}
             onClose={() => setShiftModal(null)}
             onSave={saveShift}
+          />
+        )}
+        {importPreview && (
+          <ImportConflictModal
+            preview={importPreview}
+            onCancel={async () => {
+              try {
+                await api.cancelImport();
+              } catch {
+                /* still close */
+              }
+              setImportPreview(null);
+              setStatus("Import cancelled. Stored hours were not changed.");
+            }}
+            onApply={resolveImport}
           />
         )}
 
@@ -901,7 +924,10 @@ export default function App() {
                 onChange={(e) => onImport(e.target.files[0])}
               />
             </div>
-            <p className="sub">Days already stored for the same dates are replaced. Other months are kept.</p>
+            <p className="sub">
+              New days are added. Days that already match are left alone. If a stored day differs from the file, you
+              choose leave or overwrite.
+            </p>
             {data.imports?.length > 0 && (
               <table>
                 <thead>
@@ -998,6 +1024,8 @@ function MonthCalendar({
   onSelect,
   onAddShift,
   onEditShift,
+  onDeleteShift,
+  onOpenWeek,
   onToggleVac,
   onNoteChange,
   onSaveNote,
@@ -1008,10 +1036,17 @@ function MonthCalendar({
   const calledIn = cells.filter((c) => c?.calledIn);
   const selected = cells.find((c) => c?.iso === selectedIso) || null;
   const canNote = selected && selected.vacation;
+  const rows = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    const row = cells.slice(i, i + 7);
+    while (row.length < 7) row.push(null);
+    rows.push(row);
+  }
 
   return (
     <div className="panel">
       <h3>Workdays</h3>
+      <p className="vac-summary">Click a week number for hours vs 20 h. Select a day to edit its shift.</p>
       {(vac.dates.length > 0 || calledIn.length > 0) && (
         <p className="vac-summary">
           {vac.dates.length} vacation {vac.dates.length === 1 ? "day" : "days"}
@@ -1025,97 +1060,151 @@ function MonthCalendar({
         </p>
       )}
       <div className="cal-head">
+        <span className="cal-week-label">Wk</span>
         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
           <span key={d}>{d}</span>
         ))}
       </div>
       <div className="cal-grid">
-        {cells.map((cell, i) => {
-          if (!cell) return <div key={`e-${i}`} className="cal-cell empty-cell" />;
-          const shift = cell.shift;
-          const overnight = isOvernight(shift);
-          const cls = [
-            "cal-cell",
-            cell.weekend ? "weekend" : "",
-            cell.holiday ? "holiday" : "",
-            cell.vacation ? "vacation" : "",
-            cell.calledIn ? "called-in" : "",
-            shift ? "has-shift" : "",
-            overnight ? "overnight" : "",
-            selectedIso === cell.iso ? "selected" : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return (
-            <div
-              key={cell.iso}
-              className={cls}
-              role="button"
-              tabIndex={0}
-              aria-pressed={selectedIso === cell.iso}
-              aria-label={`Select ${cell.iso}`}
-              onClick={() => onSelect(cell.iso)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelect(cell.iso);
-                }
-              }}
+        {rows.map((row, wi) => (
+          <Fragment key={`w-${wi}`}>
+            <button
+              type="button"
+              className="cal-week-num"
+              title={`Week ${wi + 1} vs 20 h`}
+              aria-label={`Open week ${wi + 1}`}
+              onClick={() => onOpenWeek?.(wi)}
             >
-              <div className="cal-top">
-                <span className="cal-num">{cell.day}</span>
-                <button
-                  type="button"
-                  className={`vac-toggle${cell.vacation ? " on" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleVac(cell.iso);
+              {wi + 1}
+            </button>
+            {row.map((cell, ci) => {
+              if (!cell) return <div key={`e-${wi}-${ci}`} className="cal-cell empty-cell" />;
+              const shift = cell.shift;
+              const overnight = isOvernight(shift);
+              const cls = [
+                "cal-cell",
+                cell.weekend ? "weekend" : "",
+                cell.holiday ? "holiday" : "",
+                cell.vacation ? "vacation" : "",
+                cell.calledIn ? "called-in" : "",
+                shift ? "has-shift" : "",
+                overnight ? "overnight" : "",
+                selectedIso === cell.iso ? "selected" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              return (
+                <div
+                  key={cell.iso}
+                  className={cls}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedIso === cell.iso}
+                  aria-label={`Select ${cell.iso}`}
+                  onClick={() => onSelect(cell.iso)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelect(cell.iso);
+                    }
                   }}
                 >
-                  Vac
+                  <div className="cal-top">
+                    <span className="cal-num">{cell.day}</span>
+                    <button
+                      type="button"
+                      className={`vac-toggle${cell.vacation ? " on" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleVac(cell.iso);
+                      }}
+                    >
+                      Vac
+                    </button>
+                  </div>
+                  {cell.holiday && <span className="hol-tag">{cell.holiday}</span>}
+                  {cell.calledIn && <span className="called-tag">Called in</span>}
+                  {shift ? (
+                    <button
+                      type="button"
+                      className="cal-shift"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onEditShift) onEditShift(shift);
+                      }}
+                    >
+                      <strong>
+                        {shift.start}–{shift.end}
+                      </strong>
+                      {overnight && <span className="ov-tag">overnight</span>}
+                      <span>{hours(shift.hours)}</span>
+                    </button>
+                  ) : (
+                    <>
+                      {cell.vacation && <span className="vac-label">Vacation</span>}
+                      <button
+                        type="button"
+                        className="cal-add"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddShift?.(cell.iso);
+                        }}
+                      >
+                        + Add
+                      </button>
+                    </>
+                  )}
+                  {cell.vacationNote && (
+                    <span className="cal-note" title={cell.vacationNote}>
+                      {cell.vacationNote}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+      {selected && (
+        <div className="day-detail">
+          <h4>
+            {selected.iso}
+            {selected.shift ? ` · ${selected.shift.weekday}` : ""}
+          </h4>
+          {selected.shift ? (
+            <>
+              <p>
+                {selected.shift.start}–{selected.shift.end}
+                {" · billed "}
+                {hours(selected.shift.hours)}
+                {" · clock "}
+                {hours(selected.shift.clock_hours)}
+                {" · break "}
+                {hours(selected.shift.break_hours)}
+              </p>
+              <p>
+                Night {hours(selected.shift.night_h)}
+                {" · "}
+                {selected.shift.holiday_name || selected.shift.day_type}
+                {" · "}
+                {eur(selected.shift.brutto)}
+              </p>
+              <div className="row">
+                <button type="button" className="ghost" onClick={() => onEditShift?.(selected.shift)}>
+                  Edit
+                </button>
+                <button type="button" className="ghost" onClick={() => onDeleteShift?.(selected.shift)}>
+                  Delete
                 </button>
               </div>
-              {cell.holiday && <span className="hol-tag">{cell.holiday}</span>}
-              {cell.calledIn && <span className="called-tag">Called in</span>}
-              {shift ? (
-                <button
-                  type="button"
-                  className="cal-shift"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onEditShift) onEditShift(shift);
-                  }}
-                >
-                  <strong>
-                    {shift.start}–{shift.end}
-                  </strong>
-                  {overnight && <span className="ov-tag">overnight</span>}
-                  <span>{hours(shift.hours)}</span>
-                </button>
-              ) : (
-                <>
-                  {cell.vacation && <span className="vac-label">Vacation</span>}
-                  <button
-                    type="button"
-                    className="cal-add"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAddShift?.(cell.iso);
-                    }}
-                  >
-                    + Add
-                  </button>
-                </>
-              )}
-              {cell.vacationNote && (
-                <span className="cal-note" title={cell.vacationNote}>
-                  {cell.vacationNote}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            </>
+          ) : (
+            <button type="button" className="ghost" onClick={() => onAddShift?.(selected.iso)}>
+              + Add shift
+            </button>
+          )}
+        </div>
+      )}
       {canNote && (
         <div className="note-box">
           <label htmlFor="vac-note">
@@ -1222,8 +1311,11 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
   const w = weeks[idx];
   const prev = idx > 0 ? weeks[idx - 1] : null;
   const next = idx < weeks.length - 1 ? weeks[idx + 1] : null;
-  const label = `Week ${idx + 1} · ${w.start} – ${w.end}`;
+  const label = w.complete
+    ? `Week ${idx + 1} · ${w.start} – ${w.end}`
+    : `Week ${idx + 1} · ${w.start} – ${w.end} · ${w.days || "?"} days in month`;
   const worked = shifts.reduce((n, s) => n + Number(s.hours || 0), 0);
+  const needed = Number(w.needed) || 0;
   return (
     <>
       <div className="month-hop" role="group" aria-label="Previous or next week">
@@ -1247,9 +1339,15 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
       </div>
       <HoursNeededBar
         worked={worked}
-        needed={w.needed}
-        extraHint={partTime ? "paid as OT" : ""}
-        label={partTime ? "20 h/week contract" : "Weekly target"}
+        needed={needed}
+        extraHint={partTime && w.complete ? "paid as OT" : partTime ? "OT paid on full weeks only" : ""}
+        label={
+          partTime
+            ? w.complete
+              ? "20 h/week contract"
+              : `Prorated 20 h/week (${hours(needed)} target)`
+            : "Weekly target"
+        }
       />
       <div className="panel">
         <h3>Shifts this week</h3>
@@ -1290,7 +1388,9 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
   );
 }
 
-function StubModal({ month, stub, onChange, onSave, onClose }) {
+function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, onSave, onClose }) {
+  const [keepZero, setKeepZero] = useState(Boolean(osobneZero));
+  const copyable = parseReceived(stub?.vyuctovanie || stub?.cista) != null;
   return (
     <div className="modal-back" onClick={onClose} role="presentation">
       <div className="modal stub-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Payslip stub">
@@ -1303,6 +1403,15 @@ function StubModal({ month, stub, onChange, onSave, onClose }) {
         <p className="sub">
           Figures from the paper stub. Not used in the calculation — only to compare vs calc.
         </p>
+        <div className="row">
+          <button type="button" className="ghost" disabled={!copyable} onClick={onCopyReceived}>
+            Copy čistá / vyúčtovanie into Received
+          </button>
+          <label className="osobne-zero">
+            <input type="checkbox" checked={keepZero} onChange={(e) => setKeepZero(e.target.checked)} />
+            Stub osobné is extra hours — keep calculated osobné at 0
+          </label>
+        </div>
         {STUB_GROUPS.map((group) => (
           <div key={group.title} className="stub-group">
             <h4>{group.title}</h4>
@@ -1326,7 +1435,7 @@ function StubModal({ month, stub, onChange, onSave, onClose }) {
             type="button"
             className="primary"
             onClick={() => {
-              onSave();
+              onSave({ osobneZero: keepZero });
               onClose();
             }}
           >
@@ -1340,13 +1449,35 @@ function StubModal({ month, stub, onChange, onSave, onClose }) {
 }
 
 function ReconcilePanel({ month }) {
+  const [showAll, setShowAll] = useState(false);
   const rows = month?.reconcile?.rows || [];
   const extras = month?.reconcile?.extras || [];
   const notes = month?.explainer || [];
+  const meaningful = rows.filter((row) => row.delta != null && Math.abs(row.delta) >= 0.05);
+  const visible = showAll ? rows : meaningful;
+  const unexplained = month?.reconcile?.unexplained;
+  const netDelta = month?.reconcile?.net_delta;
   if (!rows.length && !notes.length) return null;
   return (
     <div className="panel">
       <h3>Calc vs stub</h3>
+      {(unexplained != null || netDelta != null) && (
+        <p className="need-bar-meta">
+          {unexplained != null && (
+            <>
+              Unexplained gap (stub čistá/vyúčtovanie − calc):{" "}
+              <strong className={unexplained >= 0 ? "delta-pos" : "delta-neg"}>{eur(unexplained)}</strong>
+            </>
+          )}
+          {unexplained != null && netDelta != null ? " · " : ""}
+          {netDelta != null && (
+            <>
+              Sum of line deltas:{" "}
+              <strong className={netDelta >= 0 ? "delta-pos" : "delta-neg"}>{eur(netDelta)}</strong>
+            </>
+          )}
+        </p>
+      )}
       {notes.length > 0 && (
         <ul className="explainer">
           {notes.map((n) => (
@@ -1354,6 +1485,12 @@ function ReconcilePanel({ month }) {
           ))}
         </ul>
       )}
+      <p className="sub">
+        {showAll ? `${rows.length} lines.` : `${meaningful.length} differences ≥ 0.05 €.`}{" "}
+        <button type="button" className="ghost" onClick={() => setShowAll((v) => !v)}>
+          {showAll ? "Hide matching lines" : "Show all lines"}
+        </button>
+      </p>
       <table>
         <thead>
           <tr>
@@ -1364,16 +1501,22 @@ function ReconcilePanel({ month }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.label}>
-              <td>{row.label}</td>
-              <td>{eur(row.calc)}</td>
-              <td>{eur(row.stub)}</td>
-              <td style={{ color: row.delta == null ? undefined : row.delta >= 0 ? "var(--green)" : "var(--red)" }}>
-                {eur(row.delta)}
-              </td>
+          {visible.length === 0 && extras.length === 0 ? (
+            <tr>
+              <td colSpan={4}>No material differences.</td>
             </tr>
-          ))}
+          ) : (
+            visible.map((row) => (
+              <tr key={row.label}>
+                <td>{row.label}</td>
+                <td>{eur(row.calc)}</td>
+                <td>{eur(row.stub)}</td>
+                <td className={row.delta == null ? "" : row.delta >= 0 ? "delta-pos" : "delta-neg"}>
+                  {eur(row.delta)}
+                </td>
+              </tr>
+            ))
+          )}
           {extras.map((row) => (
             <tr key={row.label}>
               <td>{row.label}{row.qty != null ? ` (${row.qty})` : ""}</td>
@@ -1384,6 +1527,101 @@ function ReconcilePanel({ month }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function formatImportShift(shift) {
+  const range = `${shift.start}–${shift.end}`;
+  if (shift.reported_hours == null || shift.reported_hours === "") return range;
+  return `${range} · ${hours(shift.reported_hours)}`;
+}
+
+function ImportConflictModal({ preview, onCancel, onApply }) {
+  const conflicts = preview.conflicts || [];
+  const [choice, setChoice] = useState(() => Object.fromEntries(conflicts.map((c) => [c.date, "leave"])));
+  const overwriteCount = Object.values(choice).filter((v) => v === "overwrite").length;
+  const leaveCount = conflicts.length - overwriteCount;
+  return (
+    <div className="modal-back" role="presentation">
+      <div className="modal stub-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Import conflicts">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0 }}>Stored days differ from this file</h3>
+          <button type="button" className="ghost" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+        <p className="sub">
+          {preview.filename ? `${preview.filename} · ` : ""}
+          {preview.new_count || 0} new day{(preview.new_count || 0) === 1 ? "" : "s"}
+          {preview.same_count ? ` · ${preview.same_count} already match` : ""}. For the days below, leave the stored
+          hours or overwrite with the file.
+        </p>
+        <div className="row">
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setChoice(Object.fromEntries(conflicts.map((c) => [c.date, "leave"])))}
+          >
+            Leave all stored
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setChoice(Object.fromEntries(conflicts.map((c) => [c.date, "overwrite"])))}
+          >
+            Overwrite all
+          </button>
+        </div>
+        <table className="conflict-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Stored</th>
+              <th>In this file</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {conflicts.map((row) => (
+              <tr key={row.date} className={choice[row.date] === "overwrite" ? "conflict-overwrite" : "conflict-leave"}>
+                <td>{row.date}</td>
+                <td>{(row.existing || []).map(formatImportShift).join("; ") || "—"}</td>
+                <td>{(row.incoming || []).map(formatImportShift).join("; ") || "—"}</td>
+                <td>
+                  <div className="mode-switch" role="group" aria-label={`Keep or overwrite ${row.date}`}>
+                    <button
+                      type="button"
+                      className={choice[row.date] === "leave" ? "active" : ""}
+                      onClick={() => setChoice((prev) => ({ ...prev, [row.date]: "leave" }))}
+                    >
+                      Leave
+                    </button>
+                    <button
+                      type="button"
+                      className={choice[row.date] === "overwrite" ? "active" : ""}
+                      onClick={() => setChoice((prev) => ({ ...prev, [row.date]: "overwrite" }))}
+                    >
+                      Overwrite
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p>
+          <button
+            type="button"
+            className="primary"
+            onClick={() =>
+              onApply(Object.entries(choice).filter(([, v]) => v === "overwrite").map(([date]) => date))
+            }
+          >
+            Apply ({leaveCount} leave, {overwriteCount} overwrite)
+          </button>
+        </p>
+      </div>
     </div>
   );
 }

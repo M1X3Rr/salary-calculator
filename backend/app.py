@@ -62,8 +62,116 @@ class ShiftBody(BaseModel):
     old_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
 
 
+class ImportResolve(BaseModel):
+    overwrite: list[str] = Field(default_factory=list)
+
+
 class PreviewBody(BaseModel):
     hourly_rate: float
+
+
+def _shift_sig(shift: dict[str, Any]) -> tuple:
+    hours = shift.get("reported_hours")
+    if hours is not None:
+        hours = round(float(hours), 4)
+    return (shift.get("start"), shift.get("end"), hours)
+
+
+def _shifts_by_date(shifts: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for shift in shifts:
+        grouped[shift["date"]].append(shift)
+    for day in grouped:
+        grouped[day].sort(key=_shift_sig)
+    return grouped
+
+
+def _public_shifts(shifts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "start": s.get("start"),
+            "end": s.get("end"),
+            "reported_hours": s.get("reported_hours"),
+        }
+        for s in shifts
+    ]
+
+
+def diff_import(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> dict[str, Any]:
+    old = _shifts_by_date(existing)
+    new = _shifts_by_date(incoming)
+    new_dates: list[str] = []
+    same_dates: list[str] = []
+    conflicts: list[dict[str, Any]] = []
+    for day, inc in sorted(new.items()):
+        stored = old.get(day)
+        if not stored:
+            new_dates.append(day)
+        elif [_shift_sig(s) for s in stored] == [_shift_sig(s) for s in inc]:
+            same_dates.append(day)
+        else:
+            conflicts.append(
+                {
+                    "date": day,
+                    "existing": _public_shifts(stored),
+                    "incoming": _public_shifts(inc),
+                }
+            )
+    return {"new_dates": new_dates, "same_dates": same_dates, "conflicts": conflicts}
+
+
+def merge_import(
+    existing: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+    overwrite_dates: set[str],
+) -> list[dict[str, Any]]:
+    old = _shifts_by_date(existing)
+    new = _shifts_by_date(incoming)
+    merged: list[dict[str, Any]] = []
+    for day in sorted(set(old) | set(new)):
+        if day not in new:
+            merged.extend(old[day])
+            continue
+        if day not in old:
+            merged.extend(new[day])
+            continue
+        same = [_shift_sig(s) for s in old[day]] == [_shift_sig(s) for s in new[day]]
+        if same or day not in overwrite_dates:
+            merged.extend(old[day])
+        else:
+            merged.extend(new[day])
+    merged.sort(key=lambda s: (s["date"], s["start"]))
+    return merged
+
+
+def _commit_import(state: dict[str, Any], pending: dict[str, Any], overwrite_dates: set[str]) -> dict[str, Any]:
+    incoming = pending["shifts"]
+    merged = merge_import(state.get("shifts", []), incoming, overwrite_dates)
+    replaced = len(overwrite_dates)
+    state["shifts"] = merged
+    state["imports"].append(
+        {
+            "filename": pending.get("filename"),
+            "employee": pending.get("employee"),
+            "department": pending.get("department"),
+            "imported_at": datetime.now().isoformat(timespec="seconds"),
+            "shift_count": len(incoming),
+            "replaced_dates": replaced,
+            "kept_dates": len(pending.get("conflicts") or []) - replaced,
+        }
+    )
+    state.pop("pending_import", None)
+    save_state(state)
+    report = build_report(state)
+    report["import_meta"] = {
+        "employee": pending.get("employee"),
+        "department": pending.get("department"),
+        "added": len(pending.get("new_dates") or []),
+        "unchanged": len(pending.get("same_dates") or []),
+        "replaced": replaced,
+        "kept": len(pending.get("conflicts") or []) - replaced,
+    }
+    return report
 
 
 def _parse_time(hhmm: str):
@@ -110,12 +218,21 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
     for key in sorted(by_month):
         year_s, month_s = key.split("-")
         year_i, month_i = int(year_s), int(month_s)
+        vac = _vacation_for_month(state, key)
+        skip = set()
+        for iso in vac.get("dates") or []:
+            try:
+                skip.add(date.fromisoformat(iso))
+            except ValueError:
+                continue
+        weeks = weeks_for_month(year_i, month_i, by_month[key], state["settings"])
         payroll = month_payroll(
             by_month[key],
             state["settings"],
             float(state.get("osobne", {}).get(key, 0) or 0),
             year=year_i,
             month=month_i,
+            weeks=weeks,
         )
         recv = state.get("received", {}).get(key, {})
         if not isinstance(recv, dict):
@@ -128,15 +245,14 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
         incomplete = stub_incomplete(recv, received_f)
         recon = reconcile_month(payroll, stub)
         explainer = explain_month(payroll, stub, incomplete)
-        vac = _vacation_for_month(state, key)
-        skip = set()
-        for iso in vac.get("dates") or []:
-            try:
-                skip.add(date.fromisoformat(iso))
-            except ValueError:
-                continue
-        working_days, needed_hours = needed_hours_for_month(
+        working_days, fallback_needed = needed_hours_for_month(
             year_i, month_i, state["settings"], skip
+        )
+        part_time = str(state["settings"].get("employment_type") or "part_time") != "full_time"
+        needed_hours = (
+            round(sum(float(w.get("needed") or 0) for w in weeks), 4)
+            if part_time
+            else fallback_needed
         )
         months.append(
             {
@@ -152,7 +268,7 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
                 "difference": diff,
                 "working_days": working_days,
                 "needed_hours": needed_hours,
-                "weeks": weeks_for_month(year_i, month_i, paid, state["settings"]),
+                "weeks": weeks,
                 "shifts": [s.to_dict() for s in by_month[key]],
                 "vacation": vac,
                 "holidays": holidays_in_month(year_i, month_i),
@@ -212,39 +328,46 @@ async def import_file(file: UploadFile = File(...)):
         raise HTTPException(400, "No shifts found in this file.")
 
     state = load_state()
-    existing = {(s["date"], s["start"], s["end"]): s for s in state.get("shifts", [])}
-    incoming = parsed["shifts"]
-    replaced = 0
-    by_date = {s["date"] for s in incoming}
-    kept = [s for s in existing.values() if s["date"] not in by_date]
-    for s in incoming:
-        key = (s["date"], s["start"], s["end"])
-        if key in existing:
-            replaced += 1
-        existing[key] = s
-    # Replace all shifts on dates present in the new file; keep other dates.
-    merged = kept + incoming
-    merged.sort(key=lambda s: (s["date"], s["start"]))
-    state["shifts"] = merged
-    state["imports"].append(
-        {
-            "filename": parsed.get("source_name"),
-            "employee": parsed.get("employee"),
-            "department": parsed.get("department"),
-            "imported_at": datetime.now().isoformat(timespec="seconds"),
-            "shift_count": len(incoming),
-            "replaced_dates": len(by_date),
-        }
-    )
-    save_state(state)
-    report = build_report(state)
-    report["import_meta"] = {
-        "employee": parsed["employee"],
-        "department": parsed["department"],
-        "added": len(incoming),
-        "replaced": replaced,
+    diff = diff_import(state.get("shifts", []), parsed["shifts"])
+    pending = {
+        "filename": parsed.get("source_name"),
+        "employee": parsed.get("employee"),
+        "department": parsed.get("department"),
+        "shifts": parsed["shifts"],
+        **diff,
     }
-    return report
+    if not diff["conflicts"]:
+        return _commit_import(state, pending, set())
+
+    state["pending_import"] = pending
+    save_state(state)
+    return {
+        "preview": True,
+        "filename": pending["filename"],
+        "employee": pending["employee"],
+        "new_count": len(diff["new_dates"]),
+        "same_count": len(diff["same_dates"]),
+        "conflicts": diff["conflicts"],
+    }
+
+
+@app.post("/api/import/resolve")
+def import_resolve(body: ImportResolve):
+    state = load_state()
+    pending = state.get("pending_import")
+    if not isinstance(pending, dict) or not pending.get("shifts"):
+        raise HTTPException(400, "No import waiting for a decision. Drop the file again.")
+    allowed = {c["date"] for c in pending.get("conflicts") or []}
+    overwrite = {d for d in body.overwrite if d in allowed}
+    return _commit_import(state, pending, overwrite)
+
+
+@app.post("/api/import/cancel")
+def import_cancel():
+    state = load_state()
+    state.pop("pending_import", None)
+    save_state(state)
+    return {"ok": True}
 
 
 @app.put("/api/vacation")
@@ -376,5 +499,6 @@ def clear_shifts():
     state = load_state()
     state["shifts"] = []
     state["imports"] = []
+    state.pop("pending_import", None)
     save_state(state)
     return build_report(state)

@@ -250,10 +250,42 @@ h1 { margin: 0 0 6px; font-size: 28px; }
 .vac-summary { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 .cal-head, .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: 32px repeat(7, minmax(0, 1fr));
   gap: 6px;
 }
 .cal-head { font-size: 11px; color: var(--muted); margin-bottom: 6px; text-align: center; }
+.cal-week-label { font-size: 10px; align-self: end; }
+.cal-week-num {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 108px;
+  padding: 6px 0;
+}
+.cal-week-num:hover {
+  color: var(--text);
+  border-color: var(--gold);
+}
+.day-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.day-detail h4 { margin: 0 0 6px; font-size: 14px; }
+.day-detail p { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+.delta-pos { color: var(--green); }
+.delta-neg { color: var(--red); }
+.osobne-zero {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
 .cal-cell {
   min-height: 108px;
   min-width: 0;
@@ -560,7 +592,10 @@ th { color: var(--muted); font-weight: 600; }
   flex-direction: column;
   gap: 10px;
 }
-.modal label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.conflict-table { font-size: 13px; }
+.conflict-leave td:nth-child(2) { color: var(--green); }
+.conflict-overwrite td:nth-child(3) { color: var(--orange); }
+.conflict-table .mode-switch button { padding: 6px 10px; font-size: 12px; }
 @media (max-width: 1100px) {
   .app { grid-template-columns: 1fr; }
   .cards { grid-template-columns: 1fr 1fr; }

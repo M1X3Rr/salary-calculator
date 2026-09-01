@@ -19,6 +19,13 @@ export const api = {
     fd.append("file", file);
     return fetch("/api/import", { method: "POST", body: fd }).then(json);
   },
+  resolveImport: (overwrite) =>
+    fetch("/api/import/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ overwrite }),
+    }).then(json),
+  cancelImport: () => fetch("/api/import/cancel", { method: "POST" }).then(json),
   saveReceived: (payload) =>
     fetch("/api/received", {
       method: "POST",

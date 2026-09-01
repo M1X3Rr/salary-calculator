@@ -20,7 +20,7 @@ export function payslipLines(month, partTime) {
     ["Príplatok nedeľa", month.sun_prem],
     ["Práca v noci", month.night_prem],
     ["Príplatok sviatok", month.holiday_prem],
-    ...(month.ot_prem || partTime ? [["Príplatok nadčas (OT above 20 h/week)", month.ot_prem]] : []),
+    ...(month.ot_prem || partTime ? [["Príplatok nadčas (OT above weekly 20 h cap)", month.ot_prem]] : []),
     ["Osobné ohodnotenie", month.osobne],
     ["Hrubá mzda", month.hruba],
     ...(month.oop_applied ? [["OOP (študent, not taxed as pension base)", month.oop_applied]] : []),

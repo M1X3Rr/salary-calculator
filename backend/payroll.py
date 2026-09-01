@@ -57,10 +57,13 @@ def overtime_hours_for_month(
     month: int,
     billed_hours: float,
     settings: dict[str, Any],
+    weeks: list[dict[str, Any]] | None = None,
 ) -> float:
-    """Hours above the part-time monthly quota (20 h/week = 4 h × weekdays)."""
+    """Hours above the weekly 20 h cap, summed for this month (prorated weeks)."""
     if str(settings.get("employment_type") or "part_time") == "full_time":
         return 0.0
+    if weeks:
+        return _r4(sum(float(w.get("overtime") or 0) for w in weeks))
     _, needed = needed_hours_for_month(year, month, settings)
     return _r4(max(0.0, float(billed_hours) - needed))
 
@@ -259,6 +262,7 @@ def month_payroll(
     osobne: float = 0.0,
     year: int | None = None,
     month: int | None = None,
+    weeks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     hours = _r4(sum(s.hours for s in shifts))
     night_h = _r4(sum(s.night_h for s in shifts))
@@ -272,7 +276,7 @@ def month_payroll(
     holiday_prem = _r2(sum(s.holiday_prem for s in shifts))
     ot_hours = 0.0
     if year is not None and month is not None:
-        ot_hours = overtime_hours_for_month(year, month, hours, settings)
+        ot_hours = overtime_hours_for_month(year, month, hours, settings, weeks=weeks)
     ot_base = float(settings.get("avg_earnings") or 0) or float(settings.get("hourly_rate") or 0)
     ot_prem = _r2(ot_hours * ot_base * float(settings.get("prem_ot_pct") or 0.25))
     hruba = _r2(sum(s.brutto for s in shifts) + ot_prem + float(osobne or 0))
@@ -408,22 +412,33 @@ def weeks_for_month(
     for shift in all_shifts:
         hours_by_date[shift.work_date] += float(shift.hours or 0)
     part_time = str(settings.get("employment_type") or "part_time") != "full_time"
-    if part_time:
-        needed = float(settings.get("contract_h_week") or 20)
-    else:
-        needed = 5.0 * float(settings.get("full_time_shift_hours") or 8)
+    week_cap = float(settings.get("contract_h_week") or 20)
+    shift_h = float(settings.get("full_time_shift_hours") or 8)
     weeks = []
     for iso_year, iso_week in seen:
         monday = date.fromisocalendar(iso_year, iso_week, 1)
         sunday = date.fromisocalendar(iso_year, iso_week, 7)
         start = max(monday, month_start)
         end = min(sunday, month_end)
+        days = (end - start).days + 1
+        complete = days == 7
         total = 0.0
         cursor = start
         while cursor <= end:
             total += hours_by_date.get(cursor.isoformat(), 0.0)
             cursor += timedelta(days=1)
-        overtime = _r4(max(0.0, total - needed))
+        if part_time:
+            needed = _r4(week_cap * (days / 7.0))
+            # OT pay only on a full Mon–Sun week; partial weeks still show a prorated bar.
+            overtime = _r4(max(0.0, total - needed)) if complete else 0.0
+        else:
+            weekdays = sum(
+                1
+                for offset in range(days)
+                if (start + timedelta(days=offset)).weekday() < 5
+            )
+            needed = _r4(weekdays * shift_h)
+            overtime = 0.0
         weeks.append(
             {
                 "week": len(weeks) + 1,
@@ -431,8 +446,10 @@ def weeks_for_month(
                 "iso_year": iso_year,
                 "start": start.isoformat(),
                 "end": end.isoformat(),
+                "days": days,
+                "complete": complete,
                 "hours": _r4(total),
-                "needed": _r4(needed),
+                "needed": needed,
                 "overtime": overtime,
             }
         )

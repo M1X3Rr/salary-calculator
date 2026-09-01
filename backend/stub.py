@@ -183,7 +183,19 @@ def reconcile_month(payroll: dict[str, Any], stub: dict[str, Any] | None) -> dic
         if stub_v is None and qty is None:
             continue
         extras.append({"label": label, "stub": stub_v, "qty": qty})
-    return {"rows": rows, "extras": extras}
+    deltas = [r["delta"] for r in rows if r["delta"] is not None]
+    net_delta = round(sum(deltas), 2) if deltas else None
+    stub_net = _num(stub_n.get("vyuctovanie")) or _num(stub_n.get("cista"))
+    calc_net = _num(payroll.get("cista"))
+    unexplained = None
+    if stub_net is not None and calc_net is not None:
+        unexplained = round(stub_net - calc_net, 2)
+    return {
+        "rows": rows,
+        "extras": extras,
+        "net_delta": net_delta,
+        "unexplained": unexplained,
+    }
 
 
 def explain_month(payroll: dict[str, Any], stub: dict[str, Any] | None, incomplete: bool) -> list[str]:
@@ -202,12 +214,8 @@ def explain_month(payroll: dict[str, Any], stub: dict[str, Any] | None, incomple
             "Stub osobné is much higher than calculated osobné, and stub príplatky are ~0 while the calc has night/OT. Extra hours were likely booked as osobné on the stub — keep calculated osobné at 0 so it is not double-counted."
         )
     recon = reconcile_month(payroll, stub_n)
-    for row in recon["rows"]:
-        if row["delta"] is None:
-            continue
-        if abs(row["delta"]) < 0.05:
-            continue
+    if recon.get("unexplained") is not None and abs(recon["unexplained"]) >= 0.05:
         notes.append(
-            f"{row['label']}: calc {row['calc']:.2f} € vs stub {row['stub']:.2f} € ({row['delta']:+.2f} €)."
+            f"Unexplained gap (stub čistá/vyúčtovanie − calc čistá): {recon['unexplained']:+.2f} €."
         )
     return notes
