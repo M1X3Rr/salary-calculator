@@ -10,7 +10,7 @@ From this folder, in two terminals:
 
 **Backend**
 
-```powershell
+```
 cd backend
 python -m pip install -r requirements.txt
 python -m uvicorn app:app --host 127.0.0.1 --port 8000
@@ -18,7 +18,7 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8000
 
 **Frontend**
 
-```powershell
+```
 cd frontend
 npm install
 npm run dev
@@ -30,6 +30,18 @@ Or from the project root:
 
 ```powershell
 .\start.ps1
+```
+
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+## Tests
+
+```
+python -m pip install -r backend/requirements.txt
+python -m pytest tests -q
 ```
 
 

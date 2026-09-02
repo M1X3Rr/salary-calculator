@@ -13,11 +13,11 @@ DATA_DIR = ROOT / "data"
 STATE_PATH = DATA_DIR / "state.json"
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "name": "Michal Fesenko",
-    "department": "",
-    "personal_no": "Z0291",
-    "employer": "MCGA legal",
-    "health_insurer": "Union",
+    "name": "Name Surname",
+    "department": "DepName",
+    "personal_no": "N0000",
+    "employer": "Employer Name",
+    "health_insurer": "Health Insurer Name",
     "hourly_rate": 8.0,
     "avg_earnings": 0.0,
     "employment_type": "part_time",
