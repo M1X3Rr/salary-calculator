@@ -20,7 +20,7 @@ export function payslipLines(month, partTime) {
     ["Príplatok nedeľa", month.sun_prem],
     ["Práca v noci", month.night_prem],
     ["Príplatok sviatok", month.holiday_prem],
-    ...(month.ot_prem || partTime ? [["Príplatok nadčas (OT above weekly 20 h cap)", month.ot_prem]] : []),
+    ...(month.ot_prem ? [["Príplatok nadčas (OT above weekly 20 h cap)", month.ot_prem]] : []),
     ["Osobné ohodnotenie", month.osobne],
     ["Hrubá mzda", month.hruba],
     ...(month.oop_applied ? [["OOP (študent, not taxed as pension base)", month.oop_applied]] : []),
@@ -82,8 +82,9 @@ function wrapHtml({ title, heading, profile, mode, meta, body }) {
     .note { color: #6b6258; font-size: 12px; margin-top: 24px; }
     .emph td { font-weight: 700; }
     @media print {
-      body { background: #fff; padding: 0; }
-      .sheet { border: 0; max-width: none; }
+      body { background: #fff; padding: 12mm; }
+      .sheet { border: 0; max-width: none; border-radius: 0; }
+      .no-print { display: none; }
     }
   </style>
 </head>
@@ -94,7 +95,7 @@ function wrapHtml({ title, heading, profile, mode, meta, body }) {
     <p class="who">${esc(id.name)} · ${esc(id.department)} · ${esc(id.employer)}${id.personal ? ` · ${esc(id.personal)}` : ""}</p>
     <p class="meta">${esc(modeSubtitle(mode))}${meta ? ` · ${esc(meta)}` : ""} · generated ${esc(generated)}</p>
     ${body}
-    <p class="note">Local calculation only — not an official employer payslip. Open this file and use Print → Save as PDF if you need a PDF.</p>
+    <p class="note">Local calculation only — not an official employer payslip. Use Print → Save as PDF for a PDF.</p>
   </article>
 </body>
 </html>`;
@@ -165,6 +166,56 @@ export function downloadYearReport(opts) {
   downloadHtml(`salary-overview-${opts.year || "year"}.html`, yearReportHtml(opts));
 }
 
+export function printYearReport(opts) {
+  printHtml(yearReportHtml(opts));
+}
+
+function csvCell(value) {
+  const s = String(value ?? "");
+  if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+  return s;
+}
+
+export function downloadCsv(filename, rows) {
+  const text = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\n")}`;
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function printHtml(html) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  w.onload = () => {
+    w.print();
+  };
+}
+
+export function downloadYearCsv({ year, months }) {
+  const header = ["Month", "Days", "Hours", "Brutto", "Netto", "Received", "Difference"];
+  const rows = (months || []).map((m) => {
+    const rec = m.received;
+    const diff = rec == null ? "" : rec - m.cista;
+    return [m.label, m.days, m.hours, m.hruba, m.cista, rec ?? "", diff];
+  });
+  downloadCsv(`salary-overview-${year || "year"}.csv`, [header, ...rows]);
+}
+
+export function downloadMonthCsv({ month, partTime }) {
+  if (!month) return;
+  const rows = [["Line", "EUR"], ...payslipLines(month, partTime)];
+  downloadCsv(`salary-payslip-${month.month}.csv`, rows);
+}
+
 export function monthReportHtml({ month, profile, mode, partTime, hoursLabel, received, difference }) {
   if (!month) return;
   const slip = payslipLines(month, partTime)
@@ -222,4 +273,9 @@ export function monthReportHtml({ month, profile, mode, partTime, hoursLabel, re
 export function downloadMonthReport(opts) {
   if (!opts?.month) return;
   downloadHtml(`salary-payslip-${opts.month.month}.html`, monthReportHtml(opts));
+}
+
+export function printMonthReport(opts) {
+  if (!opts?.month) return;
+  printHtml(monthReportHtml(opts));
 }

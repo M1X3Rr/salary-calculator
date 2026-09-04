@@ -56,4 +56,6 @@ On Overview, type **Received** for a month and click **Save**. Difference is rec
 
 ## Rates
 
-Defaults match 2026 Slovak employment (pracovný pomer): 8 €/h, employee social 9.4% + health 5%, NČZD 497.23 €, 19% tax, weekend/night príplatky vs minimum hourly wage 5.259 €. Change them under **Settings**.
+Statutory 2026 amounts (NČZD, tax brackets, príplatky, min wage, employer %) live in `STATUTORY_BY_YEAR`. Each month uses that calendar year’s table; years without a table use the live Settings overlay (today’s 2026 numbers). Identity and contract fields (`hourly_rate`, dohoda type, OOP, weekly hours) always come from Settings.
+
+On a študentská dohoda, **základná mzda** is 4 h × weekdays in the month (20 h/week). Hours above that cap are **osobné ohodnotenie** at the hourly rate, not a 25% overtime príplatok. Paste the employer’s osobné from the stub to override that auto amount.

@@ -129,7 +129,7 @@ export function ImportTab({ data, onImport, finishImport, setError, setStatus })
             }
           }}
         >
-          Undo last import
+          Undo last import{data.undo_count ? ` (${data.undo_count})` : ""}
         </button>
         <button
           type="button"

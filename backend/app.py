@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
+import json
 from collections import defaultdict
+from copy import deepcopy
 from datetime import date, datetime
 from typing import Any
-import json
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +16,18 @@ from pydantic import BaseModel, Field
 from holidays import holidays_in_month
 from parser import parse_export
 from payroll import compute_shift, month_payroll, needed_hours_for_month, weeks_for_month
-from storage import STATE_PATH, load_state, save_state
+from storage import (
+    STATE_PATH,
+    UNDO_LIMIT,
+    StateError,
+    active_profile,
+    default_profile,
+    load_state,
+    save_state,
+    settings_for_year,
+    slug_profile_id,
+    validate_state,
+)
 from stub import (
     compact_stub,
     explain_month,
@@ -69,6 +80,15 @@ class ImportResolve(BaseModel):
 
 class PreviewBody(BaseModel):
     hourly_rate: float
+
+
+class ProfileCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,47}$")
+
+
+class ProfileSwitch(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,47}$")
 
 
 def _shift_sig(shift: dict[str, Any]) -> tuple:
@@ -146,15 +166,20 @@ def merge_import(
 
 
 def _commit_import(state: dict[str, Any], pending: dict[str, Any], overwrite_dates: set[str]) -> dict[str, Any]:
+    bag = active_profile(state)
     incoming = pending["shifts"]
-    merged = merge_import(state.get("shifts", []), incoming, overwrite_dates)
+    merged = merge_import(bag.get("shifts", []), incoming, overwrite_dates)
     replaced = len(overwrite_dates)
-    state["import_undo"] = {
-        "shifts": deepcopy(state.get("shifts", [])),
-        "imports": deepcopy(state.get("imports", [])),
-    }
-    state["shifts"] = merged
-    state["imports"].append(
+    undos = list(bag.get("import_undos") or [])
+    undos.append(
+        {
+            "shifts": deepcopy(bag.get("shifts", [])),
+            "imports": deepcopy(bag.get("imports", [])),
+        }
+    )
+    bag["import_undos"] = undos[-UNDO_LIMIT:]
+    bag["shifts"] = merged
+    bag.setdefault("imports", []).append(
         {
             "filename": pending.get("filename"),
             "employee": pending.get("employee"),
@@ -165,7 +190,8 @@ def _commit_import(state: dict[str, Any], pending: dict[str, Any], overwrite_dat
             "kept_dates": len(pending.get("conflicts") or []) - replaced,
         }
     )
-    state.pop("pending_import", None)
+    bag.pop("pending_import", None)
+    bag.pop("import_undo", None)
     save_state(state)
     report = build_report(state)
     report["import_meta"] = {
@@ -183,17 +209,17 @@ def _parse_time(hhmm: str):
     return datetime.strptime(hhmm, "%H:%M").time()
 
 
-def _paid_shifts(state: dict[str, Any]) -> list:
-    settings = state["settings"]
+def _paid_shifts(bag: dict[str, Any]) -> list:
+    settings = bag["settings"]
     paid = []
-    for raw in state.get("shifts", []):
+    for raw in bag.get("shifts", []):
         work_date = date.fromisoformat(raw["date"])
         paid.append(
             compute_shift(
                 work_date,
                 _parse_time(raw["start"]),
                 _parse_time(raw["end"]),
-                settings,
+                settings_for_year(settings, work_date.year),
                 raw.get("reported_hours"),
             )
         )
@@ -214,7 +240,8 @@ def _vacation_for_month(state: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def build_report(state: dict[str, Any]) -> dict[str, Any]:
-    paid = _paid_shifts(state)
+    bag = active_profile(state)
+    paid = _paid_shifts(bag)
     by_month: dict[str, list] = defaultdict(list)
     for shift in paid:
         by_month[_month_key(shift.work_date)].append(shift)
@@ -223,23 +250,24 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
     for key in sorted(by_month):
         year_s, month_s = key.split("-")
         year_i, month_i = int(year_s), int(month_s)
-        vac = _vacation_for_month(state, key)
+        vac = _vacation_for_month(bag, key)
         skip = set()
         for iso in vac.get("dates") or []:
             try:
                 skip.add(date.fromisoformat(iso))
             except ValueError:
                 continue
-        weeks = weeks_for_month(year_i, month_i, by_month[key], state["settings"])
+        year_settings = settings_for_year(bag["settings"], year_i)
+        weeks = weeks_for_month(year_i, month_i, by_month[key], year_settings)
         payroll = month_payroll(
             by_month[key],
-            state["settings"],
-            float(state.get("osobne", {}).get(key, 0) or 0),
+            year_settings,
+            float(bag.get("osobne", {}).get(key, 0) or 0),
             year=year_i,
             month=month_i,
             weeks=weeks,
         )
-        recv = state.get("received", {}).get(key, {})
+        recv = bag.get("received", {}).get(key, {})
         if not isinstance(recv, dict):
             recv = {"amount": recv, "note": ""}
         stub = recv.get("stub") if isinstance(recv.get("stub"), dict) else {}
@@ -250,15 +278,7 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
         incomplete = stub_incomplete(recv, received_f)
         recon = reconcile_month(payroll, stub)
         explainer = explain_month(payroll, stub, incomplete)
-        working_days, fallback_needed = needed_hours_for_month(
-            year_i, month_i, state["settings"], skip
-        )
-        part_time = str(state["settings"].get("employment_type") or "part_time") != "full_time"
-        needed_hours = (
-            round(sum(float(w.get("needed") or 0) for w in weeks), 4)
-            if part_time
-            else fallback_needed
-        )
+        working_days, needed_hours = needed_hours_for_month(year_i, month_i, year_settings, skip)
         months.append(
             {
                 "month": key,
@@ -281,15 +301,22 @@ def build_report(state: dict[str, Any]) -> dict[str, Any]:
         )
 
     years = sorted({m["month"][:4] for m in months})
+    undos = bag.get("import_undos") or []
     return {
-        "settings": state["settings"],
-        "employee": next((i.get("employee") for i in reversed(state.get("imports", [])) if i.get("employee")), None),
+        "settings": bag["settings"],
+        "employee": next((i.get("employee") for i in reversed(bag.get("imports", [])) if i.get("employee")), None),
         "updated_at": state.get("updated_at"),
-        "imports": state.get("imports", []),
+        "imports": bag.get("imports", []),
         "years": years,
         "months": months,
         "shift_count": len(paid),
-        "can_undo_import": bool(state.get("import_undo")),
+        "can_undo_import": bool(undos),
+        "undo_count": len(undos),
+        "active_profile": state.get("active_profile") or "default",
+        "profiles": [
+            {"id": pid, "name": str((p.get("settings") or {}).get("name") or pid).strip() or pid}
+            for pid, p in (state.get("profiles") or {}).items()
+        ],
     }
 
 
@@ -310,13 +337,13 @@ def report():
 
 @app.get("/api/settings")
 def get_settings():
-    return load_state()["settings"]
+    return active_profile(load_state())["settings"]
 
 
 @app.put("/api/settings")
 def put_settings(body: SettingsUpdate):
     state = load_state()
-    state["settings"].update(body.settings)
+    active_profile(state)["settings"].update(body.settings)
     save_state(state)
     return build_report(state)
 
@@ -330,11 +357,10 @@ async def import_file(file: UploadFile = File(...)):
         parsed = parse_export(raw, file.filename)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    if not parsed["shifts"]:
-        raise HTTPException(400, "No shifts found in this file.")
 
     state = load_state()
-    diff = diff_import(state.get("shifts", []), parsed["shifts"])
+    bag = active_profile(state)
+    diff = diff_import(bag.get("shifts", []), parsed["shifts"])
     pending = {
         "filename": parsed.get("source_name"),
         "employee": parsed.get("employee"),
@@ -345,7 +371,7 @@ async def import_file(file: UploadFile = File(...)):
     if not diff["conflicts"]:
         return _commit_import(state, pending, set())
 
-    state["pending_import"] = pending
+    bag["pending_import"] = pending
     save_state(state)
     return {
         "preview": True,
@@ -360,7 +386,7 @@ async def import_file(file: UploadFile = File(...)):
 @app.post("/api/import/resolve")
 def import_resolve(body: ImportResolve):
     state = load_state()
-    pending = state.get("pending_import")
+    pending = active_profile(state).get("pending_import")
     if not isinstance(pending, dict) or not pending.get("shifts"):
         raise HTTPException(400, "No import waiting for a decision. Drop the file again.")
     allowed = {c["date"] for c in pending.get("conflicts") or []}
@@ -371,7 +397,7 @@ def import_resolve(body: ImportResolve):
 @app.post("/api/import/cancel")
 def import_cancel():
     state = load_state()
-    state.pop("pending_import", None)
+    active_profile(state).pop("pending_import", None)
     save_state(state)
     return {"ok": True}
 
@@ -379,12 +405,14 @@ def import_cancel():
 @app.post("/api/import/undo")
 def import_undo():
     state = load_state()
-    snap = state.get("import_undo")
-    if not isinstance(snap, dict):
+    bag = active_profile(state)
+    undos = list(bag.get("import_undos") or [])
+    if not undos:
         raise HTTPException(400, "Nothing to undo.")
-    state["shifts"] = snap.get("shifts") or []
-    state["imports"] = snap.get("imports") or []
-    state.pop("import_undo", None)
+    snap = undos.pop()
+    bag["shifts"] = snap.get("shifts") or []
+    bag["imports"] = snap.get("imports") or []
+    bag["import_undos"] = undos
     save_state(state)
     report = build_report(state)
     report["import_meta"] = {"undone": True}
@@ -411,10 +439,12 @@ async def restore_backup(file: UploadFile = File(...)):
         payload = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HTTPException(400, "Not a JSON backup.") from exc
-    if not isinstance(payload, dict) or "settings" not in payload:
-        raise HTTPException(400, "Backup is missing settings.")
-    save_state(payload)
-    return build_report(load_state())
+    try:
+        state = validate_state(payload)
+    except StateError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    save_state(state)
+    return build_report(state)
 
 
 @app.put("/api/vacation")
@@ -427,7 +457,7 @@ def save_vacation(body: VacationUpdate):
         for iso, text in (body.notes or {}).items()
         if isinstance(iso, str) and iso.startswith(prefix) and str(text).strip()
     }
-    state.setdefault("vacation", {})[body.month] = {"dates": dates, "notes": notes}
+    active_profile(state).setdefault("vacation", {})[body.month] = {"dates": dates, "notes": notes}
     save_state(state)
     return build_report(state)
 
@@ -435,7 +465,8 @@ def save_vacation(body: VacationUpdate):
 @app.post("/api/received")
 def save_received(body: ReceivedUpdate):
     state = load_state()
-    entry = state["received"].get(body.month, {})
+    bag = active_profile(state)
+    entry = bag.setdefault("received", {}).get(body.month, {})
     if not isinstance(entry, dict):
         entry = {"amount": entry, "note": ""}
     if body.received is None:
@@ -450,9 +481,9 @@ def save_received(body: ReceivedUpdate):
             entry["stub"] = packed
         else:
             entry.pop("stub", None)
-    state["received"][body.month] = entry
+    bag["received"][body.month] = entry
     if body.osobne is not None:
-        state["osobne"][body.month] = body.osobne
+        bag.setdefault("osobne", {})[body.month] = body.osobne
     save_state(state)
     return build_report(state)
 
@@ -481,7 +512,7 @@ def _shift_payload(body: ShiftBody) -> dict[str, Any]:
 def add_shift(body: ShiftBody):
     _validate_shift(body.date, body.start, body.end)
     state = load_state()
-    shifts = state.setdefault("shifts", [])
+    shifts = active_profile(state).setdefault("shifts", [])
     key = (body.date, body.start, body.end)
     if any(_shift_key(s) == key for s in shifts):
         raise HTTPException(400, "A shift with this date and time already exists.")
@@ -499,7 +530,7 @@ def replace_shift(body: ShiftBody):
     _validate_shift(old_date, old_start, old_end)
     _validate_shift(body.date, body.start, body.end)
     state = load_state()
-    shifts = state.setdefault("shifts", [])
+    shifts = active_profile(state).setdefault("shifts", [])
     old_key = (old_date, old_start, old_end)
     new_key = (body.date, body.start, body.end)
     idx = next((i for i, s in enumerate(shifts) if _shift_key(s) == old_key), None)
@@ -521,10 +552,11 @@ def delete_shift(
 ):
     _validate_shift(date_s, start, end)
     state = load_state()
+    bag = active_profile(state)
     key = (date_s, start, end)
-    before = len(state.get("shifts", []))
-    state["shifts"] = [s for s in state.get("shifts", []) if _shift_key(s) != key]
-    if len(state["shifts"]) == before:
+    before = len(bag.get("shifts", []))
+    bag["shifts"] = [s for s in bag.get("shifts", []) if _shift_key(s) != key]
+    if len(bag["shifts"]) == before:
         raise HTTPException(404, "Shift not found.")
     save_state(state)
     return build_report(state)
@@ -533,8 +565,9 @@ def delete_shift(
 @app.post("/api/preview")
 def preview(body: PreviewBody):
     state = deepcopy(load_state())
-    original_rate = state["settings"].get("hourly_rate")
-    state["settings"]["hourly_rate"] = float(body.hourly_rate)
+    bag = active_profile(state)
+    original_rate = bag["settings"].get("hourly_rate")
+    bag["settings"]["hourly_rate"] = float(body.hourly_rate)
     report = build_report(state)
     report["settings"]["hourly_rate"] = original_rate
     report["preview"] = {"hourly_rate": float(body.hourly_rate)}
@@ -544,9 +577,53 @@ def preview(body: PreviewBody):
 @app.delete("/api/shifts")
 def clear_shifts():
     state = load_state()
-    state["shifts"] = []
-    state["imports"] = []
-    state.pop("pending_import", None)
-    state.pop("import_undo", None)
+    bag = active_profile(state)
+    bag["shifts"] = []
+    bag["imports"] = []
+    bag["import_undos"] = []
+    bag.pop("pending_import", None)
+    bag.pop("import_undo", None)
+    save_state(state)
+    return build_report(state)
+
+
+@app.post("/api/profiles")
+def create_profile(body: ProfileCreate):
+    state = load_state()
+    pid = body.id or slug_profile_id(body.name)
+    profiles = state.setdefault("profiles", {})
+    if pid in profiles:
+        raise HTTPException(400, f"Profile {pid} already exists.")
+    bag = default_profile()
+    current = active_profile(state)
+    bag["settings"] = deepcopy(current.get("settings") or bag["settings"])
+    bag["settings"]["name"] = body.name.strip()
+    profiles[pid] = bag
+    state["active_profile"] = pid
+    save_state(state)
+    return build_report(state)
+
+
+@app.post("/api/profiles/switch")
+def switch_profile(body: ProfileSwitch):
+    state = load_state()
+    if body.id not in (state.get("profiles") or {}):
+        raise HTTPException(404, "Profile not found.")
+    state["active_profile"] = body.id
+    save_state(state)
+    return build_report(state)
+
+
+@app.delete("/api/profiles/{profile_id}")
+def delete_profile(profile_id: str):
+    state = load_state()
+    profiles = state.get("profiles") or {}
+    if profile_id not in profiles:
+        raise HTTPException(404, "Profile not found.")
+    if len(profiles) < 2:
+        raise HTTPException(400, "Cannot delete the last profile.")
+    profiles.pop(profile_id)
+    if state.get("active_profile") == profile_id:
+        state["active_profile"] = next(iter(profiles))
     save_state(state)
     return build_report(state)

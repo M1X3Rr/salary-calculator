@@ -14,7 +14,20 @@ export const receivedAmountLabel = (n) => {
 
 export const parseReceived = (value) => {
   if (value === "" || value == null) return null;
-  const n = Number(value);
+  if (typeof value === "number") {
+    if (Number.isNaN(value) || value === 0) return null;
+    return value;
+  }
+  let s = String(value).trim().replace(/[\s\u00a0\u202f]/g, "");
+  if (!s) return null;
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  if (lastComma > lastDot) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else {
+    s = s.replace(/,/g, "");
+  }
+  const n = Number(s);
   if (Number.isNaN(n) || n === 0) return null;
   return n;
 };

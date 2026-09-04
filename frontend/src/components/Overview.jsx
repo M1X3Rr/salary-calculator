@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { hours } from "../api.js";
 import { eur, parseReceived, receivedAmountLabel } from "../format.js";
-import { downloadYearReport } from "../report.js";
+import { downloadYearCsv, downloadYearReport, printYearReport } from "../report.js";
 import { isStubIncomplete } from "../stub.js";
 import { HoursNeededBar, HoursSparkline, Kpi, ModeSwitch, StubOpenButton } from "./widgets.jsx";
 
@@ -86,13 +86,57 @@ export function Overview({
               months: reportMonths,
               totals,
               hoursLabel: partTime
-                ? `20 h/week cap · partial weeks prorated`
+                ? `4 h × weekdays (20 h/week) · extra hours are osobné`
                 : `${totals.workingDays} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
             });
             setStatus(`Downloaded overview report for ${year}.`);
           }}
         >
           Download year report
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          disabled={months.length === 0}
+          onClick={() => {
+            const reportMonths = months.map((m) => {
+              const d = drafts[m.month] || {};
+              return {
+                ...m,
+                received: parseReceived("received" in d ? d.received : m.received),
+              };
+            });
+            downloadYearCsv({ year, months: reportMonths });
+            setStatus(`Downloaded overview CSV for ${year}.`);
+          }}
+        >
+          Download CSV
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          disabled={months.length === 0}
+          onClick={() => {
+            const reportMonths = months.map((m) => {
+              const d = drafts[m.month] || {};
+              return {
+                ...m,
+                received: parseReceived("received" in d ? d.received : m.received),
+              };
+            });
+            printYearReport({
+              year,
+              profile,
+              mode,
+              months: reportMonths,
+              totals,
+              hoursLabel: partTime
+                ? `4 h × weekdays (20 h/week) · extra hours are osobné`
+                : `${totals.workingDays} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
+            });
+          }}
+        >
+          Print / save PDF
         </button>
       </div>
       <div className="cards">
@@ -132,10 +176,10 @@ export function Overview({
         <HoursNeededBar
           worked={totals.hours || 0}
           needed={totals.neededHours || 0}
-          extraHint={partTime ? "OT paid on full weeks only" : ""}
+          extraHint={partTime ? "Hours above 20 h/week are osobné ohodnotenie" : ""}
           label={
             partTime
-              ? `20 h/week cap · partial weeks prorated`
+              ? `4 h × weekdays (20 h/week) · extra hours are osobné`
               : `${totals.workingDays} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`
           }
         />
@@ -228,8 +272,9 @@ export function Overview({
                   <td>
                     <span className="recv-cell">
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
                         style={{ width: 110 }}
                         value={d.received ?? (m.received || "")}
                         onChange={(e) =>

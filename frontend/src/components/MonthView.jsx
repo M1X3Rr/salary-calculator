@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { calendarCells, hours, isOvernight } from "../api.js";
 import { eur, receivedAmountLabel } from "../format.js";
-import { downloadMonthReport, payslipLines } from "../report.js";
+import { downloadMonthCsv, downloadMonthReport, payslipLines, printMonthReport } from "../report.js";
 import { HoursNeededBar, Kpi, ModeSwitch, StubOpenButton } from "./widgets.jsx";
 
 function shiftChips(shift, weekOt) {
@@ -68,7 +68,7 @@ function WeekView({ weeks, weekIndex, onIndex, partTime, shifts }) {
       <HoursNeededBar
         worked={worked}
         needed={needed}
-        extraHint={partTime && w.complete ? "paid as OT" : partTime ? "OT paid on full weeks only" : ""}
+        extraHint={partTime ? "hours above cap → osobné" : ""}
         label={
           partTime
             ? w.complete
@@ -350,7 +350,6 @@ function MonthCalendar({
 export function MonthView({
   data,
   month,
-  monthDraft,
   monthReceived,
   monthDiff,
   monthIncomplete,
@@ -395,8 +394,9 @@ export function MonthView({
           <span>
             Received{" "}
             <input
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
               value={(drafts[month.month]?.received ?? month.received) || ""}
               onChange={(e) =>
                 setDrafts((prev) => ({
@@ -436,13 +436,42 @@ export function MonthView({
                 received: monthReceived,
                 difference: monthDiff,
                 hoursLabel: partTime
-                  ? `${month.working_days ?? 0} weekdays · 20 h/week cap (partial weeks prorated)`
+                ? `${month.working_days ?? 0} weekdays · 4 h/day základná (hours above that are osobné)`
                   : `${month.working_days ?? 0} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
               });
               setStatus(`Downloaded payslip for ${month.label}.`);
             }}
           >
             Download payslip
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              downloadMonthCsv({ month, partTime });
+              setStatus(`Downloaded payslip CSV for ${month.label}.`);
+            }}
+          >
+            Download CSV
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              printMonthReport({
+                month,
+                profile,
+                mode,
+                partTime,
+                received: monthReceived,
+                difference: monthDiff,
+                hoursLabel: partTime
+                ? `${month.working_days ?? 0} weekdays · 4 h/day základná (hours above that are osobné)`
+                  : `${month.working_days ?? 0} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`,
+              });
+            }}
+          >
+            Print / save PDF
           </button>
         </div>
         <div className="month-hop" role="group" aria-label="Previous or next month">
@@ -505,10 +534,10 @@ export function MonthView({
           <HoursNeededBar
             worked={month.hours || 0}
             needed={month.needed_hours || 0}
-            extraHint={partTime ? "OT paid on full weeks only" : ""}
+            extraHint={partTime ? "Hours above 20 h/week are osobné ohodnotenie" : ""}
             label={
               partTime
-                ? `20 h/week cap · partial weeks prorated`
+                ? `4 h × weekdays (20 h/week) · extra hours are osobné`
                 : `${month.working_days ?? 0} working days × ${shiftLabel} h (weekends, sviatky & vacation excluded)`
             }
           />

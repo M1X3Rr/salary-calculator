@@ -97,6 +97,9 @@ body {
 
 .theme-wrap { margin-top: 18px; }
 .theme-wrap .mode-switch { width: 100%; }
+.profile-switch { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.profile-switch label { color: var(--nav-muted); font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+.profile-switch select { width: 100%; }
 .theme-wrap .mode-switch button { flex: 1; }
 
 .main { padding: 28px 32px 48px; }

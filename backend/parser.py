@@ -117,8 +117,14 @@ def parse_export(content: bytes | str, filename: str | None = None) -> dict:
     export_year = infer_export_year(filename)
     export_month = infer_export_month(filename)
     dates: list[date | None] = [None]
+    resolved = 0
     for label in headers[1:]:
-        dates.append(resolve_header_date(label, export_year, export_month))
+        parsed_date = resolve_header_date(label, export_year, export_month)
+        dates.append(parsed_date)
+        if parsed_date is not None:
+            resolved += 1
+    if resolved == 0:
+        raise ValueError("No MCGA calendar date headers found.")
 
     employee = None
     department = None
@@ -157,6 +163,8 @@ def parse_export(content: bytes | str, filename: str | None = None) -> dict:
 
     # Stable unique by date+start+end (re-import replaces same day later in storage)
     shifts.sort(key=lambda s: (s["date"], s["start"]))
+    if not shifts:
+        raise ValueError("Calendar found but no clock-in/out cells.")
     return {
         "employee": employee or "Unknown",
         "department": department,

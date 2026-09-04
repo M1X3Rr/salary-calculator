@@ -66,6 +66,7 @@ export default function App() {
 
   useEffect(() => {
     load().catch((e) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial fetch only
   }, []);
 
   const months = useMemo(() => {
@@ -353,6 +354,49 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <div className="profile-switch">
+          <label>
+            Profile
+            <select
+              value={data.active_profile || "default"}
+              onChange={async (e) => {
+                setError("");
+                try {
+                  applyReport(await api.switchProfile(e.target.value));
+                  setDrafts({});
+                  setSelectedDay(null);
+                  setStatus("Switched profile.");
+                } catch (err) {
+                  setError(err.message);
+                }
+              }}
+            >
+              {(data.profiles || []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="ghost"
+            onClick={async () => {
+              const name = window.prompt("Name for the new profile?");
+              if (!name?.trim()) return;
+              setError("");
+              try {
+                applyReport(await api.createProfile(name.trim()));
+                setDrafts({});
+                setStatus("Profile created.");
+              } catch (err) {
+                setError(err.message);
+              }
+            }}
+          >
+            New profile
+          </button>
+        </div>
         <ThemeSwitch theme={theme} onChange={setTheme} />
       </aside>
       <main className="main">
@@ -471,7 +515,6 @@ export default function App() {
               <StubModal
                 month={month}
                 stub={monthStubDraft}
-                osobneZero={Number(monthDraft.osobne ?? month.osobne ?? 0) === 0}
                 onChange={(key, value) =>
                   setDrafts((prev) => ({
                     ...prev,
@@ -498,7 +541,8 @@ export default function App() {
                 }}
                 onSave={(opts) => {
                   const patch = { stub: monthStubDraft };
-                  if (opts?.osobneZero) patch.osobne = 0;
+                  const stubOsobne = parseReceived(monthStubDraft.osobne);
+                  if (stubOsobne != null) patch.osobne = stubOsobne;
                   if (
                     parseReceived(monthStubDraft.vyuctovanie || monthStubDraft.cista) != null &&
                     opts?.copyReceived

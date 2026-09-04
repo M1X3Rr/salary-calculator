@@ -1,12 +1,20 @@
-"""Slovak 2026 payroll for an hourly part-time employment contract."""
+"""Slovak payroll for an hourly part-time employment contract.
+
+Statutory rates are keyed by calendar year in storage.STATUTORY_BY_YEAR (2026 table).
+Unknown years fall back to live settings (the 2026 overlay).
+
+On a študentská dohoda, základná mzda is the weekly hour cap (4 h × weekdays in
+the month). Hours above that cap are paid at the hourly rate as osobné
+ohodnotenie, not as a 25% overtime príplatok.
+"""
 
 from __future__ import annotations
 
+import calendar
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
-import calendar
 
 from holidays import holiday_name
 
@@ -46,7 +54,7 @@ def needed_hours_for_month(
         shift = float(settings.get("full_time_shift_hours") or 8)
         return working, _r4(working * shift)
     # Part-time dohoda: 20 h/week = 4 h × weekdays. No paid leave, so vacation
-    # and sviatky do not reduce the quota; hours above the weekly cap are OT.
+    # and sviatky do not reduce the quota; hours above the cap are osobné.
     weekdays = sum(1 for day in range(1, last + 1) if date(year, month, day).weekday() < 5)
     daily = float(settings.get("contract_h_week") or 20) / 5.0
     return weekdays, _r4(weekdays * daily)
@@ -274,12 +282,29 @@ def month_payroll(
     sun_prem = _r2(sum(s.sun_prem for s in shifts))
     night_prem = _r2(sum(s.night_prem for s in shifts))
     holiday_prem = _r2(sum(s.holiday_prem for s in shifts))
+    rate = float(settings.get("hourly_rate") or 0)
+    part_time = str(settings.get("employment_type") or "part_time") != "full_time"
     ot_hours = 0.0
-    if year is not None and month is not None:
-        ot_hours = overtime_hours_for_month(year, month, hours, settings, weeks=weeks)
-    ot_base = float(settings.get("avg_earnings") or 0) or float(settings.get("hourly_rate") or 0)
-    ot_prem = _r2(ot_hours * ot_base * float(settings.get("prem_ot_pct") or 0.25))
-    hruba = _r2(sum(s.brutto for s in shifts) + ot_prem + float(osobne or 0))
+    ot_prem = 0.0
+    user_osobne = _r2(float(osobne or 0))
+    if part_time and year is not None and month is not None:
+        # Študentská dohoda: základná is 4 h × weekdays (20 h/week). Hours above
+        # that cap stay paid at the hourly rate as osobné ohodnotenie — not 25% OT.
+        _, cap = needed_hours_for_month(year, month, settings)
+        extra_h = _r4(max(0.0, hours - cap))
+        ot_hours = extra_h
+        basic = _r2((hours - extra_h) * rate)
+        auto_osobne = _r2(extra_h * rate)
+        osobne_out = user_osobne if user_osobne > 0 else auto_osobne
+        hruba = _r2(basic + sat_prem + sun_prem + night_prem + holiday_prem + osobne_out)
+    else:
+        ot_hours = 0.0
+        if year is not None and month is not None:
+            ot_hours = overtime_hours_for_month(year, month, hours, settings, weeks=weeks)
+        ot_base = float(settings.get("avg_earnings") or 0) or rate
+        ot_prem = _r2(ot_hours * ot_base * float(settings.get("prem_ot_pct") or 0.25))
+        osobne_out = user_osobne
+        hruba = _r2(sum(s.brutto for s in shifts) + ot_prem + osobne_out)
 
     if hruba <= 0:
         empty = {
@@ -373,7 +398,7 @@ def month_payroll(
         "holiday_prem": holiday_prem,
         "ot_hours": ot_hours,
         "ot_prem": ot_prem,
-        "osobne": _r2(float(osobne or 0)),
+        "osobne": osobne_out,
         "hruba": hruba,
         "oop_applied": oop_applied,
         "np": np,

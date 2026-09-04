@@ -83,6 +83,20 @@ export const api = {
     fetch(`/api/shift?date=${encodeURIComponent(date)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, {
       method: "DELETE",
     }).then(json),
+  createProfile: (name) =>
+    fetch("/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then(json),
+  switchProfile: (id) =>
+    fetch("/api/profiles/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).then(json),
+  deleteProfile: (id) =>
+    fetch(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }).then(json),
 };
 
 export const SETTINGS_LEADING = ["name", "department", "employer", "personal_no", "health_insurer"];
@@ -100,9 +114,9 @@ export const SETTING_HINTS = {
   apply_nczd: "Apply the monthly non-taxable allowance (NČZD) before income tax.",
   apply_oop: "Apply the odvodová odpočítateľná položka on student dohoda before SP/IP.",
   oop: "OOP amount (€) subtracted from hrubá before SP and IP on a student dohoda.",
-  contract_h_week: "Contracted hours per week. Part-time target is this ÷ 5 on each weekday.",
+  contract_h_week: "Contracted hours per week. Part-time základná is this ÷ 5 on each weekday; hours above that monthly cap are osobné ohodnotenie.",
   contract_hours_week: "Unused duplicate of contract h week. Calculations use contract_h_week.",
-  ot_enabled: "Unused. Part-time hours above the weekly target are always paid as OT.",
+  ot_enabled: "Unused. Part-time hours above the weekly target are osobné ohodnotenie, not 25% OT.",
   rate_np: "Employee sick insurance (NP). 0 on študentská dohoda.",
   rate_sp: "Employee retirement insurance (SP).",
   rate_ip: "Employee disability insurance (IP).",
@@ -120,7 +134,7 @@ export const SETTING_HINTS = {
   prem_sun: "Sunday príplatok in € per hour.",
   prem_night: "Night príplatok in € per hour.",
   prem_hol_pct: "Public-holiday príplatok as a fraction of average earnings (1 = 100%).",
-  prem_ot_pct: "Overtime príplatok as a fraction of average earnings (0.25 = 25%).",
+  prem_ot_pct: "Overtime príplatok as a fraction of average earnings (0.25 = 25%). Not used on študentská dohoda (extra hours are osobné).",
   unpaid_break_after: "Clocked hours above this get an unpaid break deducted unless logged hours are set.",
   unpaid_break_hours: "Unpaid break length in hours (0.5 = 30 min) when the shift exceeds the threshold.",
   min_wage_month: "Monthly minimum wage (reference; príplatky use min wage hour).",
@@ -155,7 +169,7 @@ export function isOvernight(shift) {
 export function modeSubtitle(type) {
   return type === "full_time"
     ? "Pracovný pomer · employee 14.4% including ZP 5%"
-    : "Študentská dohoda · 20 h/week · extra hours are OT · night & weekend príplatky apply · OOP 200 €";
+    : "Študentská dohoda · 20 h/week as základná · extra hours are osobné ohodnotenie · night & weekend príplatky apply · OOP 200 €";
 }
 
 export function calendarCells(year, month, shifts, holidays, vacationDates = [], vacationNotes = {}) {

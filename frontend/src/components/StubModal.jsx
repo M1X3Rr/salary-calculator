@@ -88,8 +88,7 @@ function ReconcilePanel({ month }) {
   );
 }
 
-export function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, onFillFromCalc, onSave, onClose }) {
-  const [keepZero, setKeepZero] = useState(Boolean(osobneZero));
+export function StubModal({ month, stub, onChange, onCopyReceived, onFillFromCalc, onSave, onClose }) {
   const copyable = parseReceived(stub?.vyuctovanie || stub?.cista) != null;
   return (
     <div className="modal-back" onClick={onClose} role="presentation">
@@ -100,7 +99,10 @@ export function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, o
             Close
           </button>
         </div>
-        <p className="sub">Figures from the paper stub. Not used in the calculation — only to compare vs calc.</p>
+        <p className="sub">
+          Paper stub for comparison. Saving copies filled <strong>osobné ohodnotenie</strong> into the calculation
+          (otherwise extra hours above 20 h/week × hourly rate).
+        </p>
         <div className="row">
           <button type="button" className="ghost" disabled={!copyable} onClick={onCopyReceived}>
             Copy čistá / vyúčtovanie into Received
@@ -108,10 +110,6 @@ export function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, o
           <button type="button" className="ghost" onClick={onFillFromCalc}>
             Fill empty fields from calc
           </button>
-          <label className="osobne-zero">
-            <input type="checkbox" checked={keepZero} onChange={(e) => setKeepZero(e.target.checked)} />
-            Stub osobné is extra hours — keep calculated osobné at 0
-          </label>
         </div>
         {STUB_GROUPS.map((group) => (
           <div key={group.title} className="stub-group">
@@ -136,7 +134,7 @@ export function StubModal({ month, stub, osobneZero, onChange, onCopyReceived, o
             type="button"
             className="primary"
             onClick={() => {
-              onSave({ osobneZero: keepZero });
+              onSave();
               onClose();
             }}
           >

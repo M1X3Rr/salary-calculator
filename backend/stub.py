@@ -208,10 +208,9 @@ def explain_month(payroll: dict[str, Any], stub: dict[str, Any] | None, incomple
     stub_osobne = _num(stub_n.get("osobne")) or 0.0
     calc_osobne = _num(payroll.get("osobne")) or 0.0
     stub_prems = sum(_num(stub_n.get(k)) or 0.0 for k in ("noc", "sobota", "nedela", "sviatky"))
-    calc_extra = (payroll.get("ot_prem") or 0) + (payroll.get("night_prem") or 0) + (payroll.get("sat_prem") or 0) + (payroll.get("sun_prem") or 0)
-    if stub_osobne > calc_osobne + 20 and stub_prems < 0.05 and calc_extra > 0.05:
+    if stub_osobne > calc_osobne + 20 and stub_prems < 0.05:
         notes.append(
-            "Stub osobné is much higher than calculated osobné, and stub príplatky are ~0 while the calc has night/OT. Extra hours were likely booked as osobné on the stub — keep calculated osobné at 0 so it is not double-counted."
+            "Stub osobné differs from extra-hours × rate. Saving the stub copies that osobné into the calculation so hrubá matches the employer slip."
         )
     recon = reconcile_month(payroll, stub_n)
     if recon.get("unexplained") is not None and abs(recon["unexplained"]) >= 0.05:
